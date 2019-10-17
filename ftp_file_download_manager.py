@@ -9,7 +9,8 @@ from blockmap import Blockmap
 
 class FtpFileDownloader:    
     """ Performs downloading of a single file using FTP """
-    def __init__(self, server_url, username, password, concurrent_connections, port=21):
+    def __init__(self, server_url, username, password, concurrent_connections, port, min_blocks_per_segment,
+                 max_blocks_per_segment):
         """
             Args:
                 server_url - url to the ftp server
@@ -22,8 +23,10 @@ class FtpFileDownloader:
         self._username = username
         self._password = password
         self._blocksize = 1024 * 1024
-        self._max_blocks_per_segment = 2
         self._port = port
+        self._min_blocks_per_segment = min_blocks_per_segment
+        self._max_blocks_per_segment = max_blocks_per_segment
+        
         
         # setup the initial dead threads for each download connections
         self._download_threads = [Thread() for _ in range(0, concurrent_connections)]
@@ -57,6 +60,8 @@ class FtpFileDownloader:
             # loop until the correct amount of data has been transferred
             bytes_received = 0
             data = ''
+            t = time.time()
+            starting_datalen = 0
             while bytes_received < (blocks * self._blocksize):
                 # check for a message on in the incoming communication queue
                 while not com_queue_in.empty():
@@ -68,25 +73,26 @@ class FtpFileDownloader:
                 
                 # receive the data
                 chunk = conn.recv(self._blocksize)
-                
-                # EOF if chunk is empty
-                if not chunk:
-                    # EOF, so break out of the loop and notify about the final partial block of data
-                    # send the final data
-                    com_queue_out.put({'type': 'data_received', 'byte_offset': byte_offset, 'data': data, 'worker_id': worker_id})
-                    return
-            
+
                 # save the data
-                data = data + chunk
+                if chunk:
+                    data = data + chunk
                 
                 # send data if greater than blocksize
-                if len(data) > self._blocksize:
+                if (len(data) > self._blocksize) or not chunk:
                     block = data[:self._blocksize]
+                    speed = (len(data) - starting_datalen) / (time.time() - t)
                     data = data[self._blocksize:]
+                    starting_datalen = len(data)
                     com_queue_out.put({'type': 'data_received', 'worker_id': worker_id,
-                                       'byte_offset': byte_offset, 'data': block})
+                                       'byte_offset': byte_offset, 'data': block, 'speed': speed})
                     byte_offset = byte_offset + self._blocksize
-                    bytes_received = bytes_received + self._blocksize            
+                    bytes_received = bytes_received + self._blocksize
+                    t = time.time()
+                    
+                    # stop of EOF            
+                    if not chunk:
+                        break
                     
     def download_file(self, remote_path, local_path):
         """ downloads a file from a remote ftp server
@@ -106,7 +112,8 @@ class FtpFileDownloader:
             local_path = os.path.join(local_path, os.path.basename(remote_path))
 
         # construct a blockmap, but the blockmap is written to disk until init_blockmap if it does not exist yet
-        blockmap = Blockmap(remote_path, local_path, self._max_blocks_per_segment, self._ftp_get_filesize)
+        blockmap = Blockmap(remote_path, local_path, self._ftp_get_filesize, self._min_blocks_per_segment,
+                            self._max_blocks_per_segment)
 
         # exit if this file has already been downloaded
         if not blockmap.is_blockmap_already_exists() and os.path.exists(local_path):
@@ -152,11 +159,12 @@ class FtpFileDownloader:
                         f.close()
                     # update the blockmap
                     blockmap.change_block_range_status(msg['byte_offset'], 1, '*')
+                    print msg['worker_id'], '%0.3f MB/s' % (msg['speed'] / 1024 / 1024)
                 else:
                     raise Exception('Unhandled msg type "%s"' % msg['type'])
 
             # sleep
-            time.sleep(1)
+            time.sleep(0.1)
         
         # clean up the block map
         blockmap.delete_blockmap()

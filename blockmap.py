@@ -12,7 +12,7 @@ class Blockmap():
     SAVING = '_'
     PENDING = '0123456789ABCDEF'
     
-    def __init__(self, remote_path, local_path, max_blocks_per_segment, file_size_func):
+    def __init__(self, remote_path, local_path, file_size_func, min_blocks_per_segment, max_blocks_per_segment):
         """ initialize the blockmap
         
             Check if a local blockmap exists in the local_path location, if it does not exist, try to contact the FTP
@@ -28,8 +28,9 @@ class Blockmap():
         self._blocksize = 1024 * 1024
         self._remote_path = remote_path
         self._local_path = local_path
-        self._max_blocks_per_segment = max_blocks_per_segment
         self._file_size_func = file_size_func
+        self._min_blocks_per_segment = min_blocks_per_segment
+        self._max_blocks_per_segment = max_blocks_per_segment
 
         # generate the blockmap_path
         if os.path.isdir(local_path):
@@ -39,12 +40,14 @@ class Blockmap():
     def _read_blockmap(self):
         """ load the blockmap from the local copy """
         with open(self._blockmap_path, 'r') as f:
-            return f.read()
+            s = f.read()
+            s = s[s.find('\n') + 1:]
+            return s
             
     def _persist_blockmap(self, blockmap):
         """ save the blockmap to disk """
         with open(self._blockmap_path, 'w') as f:
-            f.write(blockmap)
+            f.write(str(self._blocksize) + '\n' + blockmap)
 
     def set_pending_to_saving(self, worker_id):
         blockmap = self._read_blockmap()
@@ -60,6 +63,10 @@ class Blockmap():
             Returns:
                 (starting_block, blocks)
         """
+        # TODO: break this function out into its own class so we can make smarter allocaters, i.e. if there is one large chunk left
+        # already pending, kill it and break it up into smaller chunks that exceed the minimum blocks per segment/  i.e. we need an
+        # active allocator
+
         # clean the blockmap of any pending blocks with this worker_id
 #        self.clean_blockmap(worker_id)
         
@@ -101,17 +108,7 @@ class Blockmap():
         for i in range(0, blocks):
             blockmap = blockmap[:starting_block + i] + status + blockmap[starting_block + i + 1:]
         self._persist_blockmap(blockmap)
-        print og_blockmap, '->', blockmap
-
-#     def clean_blockmap(self, worker_id):
-#         """ clean any pending blocks from the blockmap """
-#         # check that worker id is a 
-#         if worker_id not in self.PENDING:
-#             raise Exception('"%s" is not a valid worker_id' % worker_id)
-#  
-#         blockmap = self._read_blockmap()
-#         blockmap = blockmap.replace(worker_id, self.AVAILABLE)
-#         self._persist_blockmap(blockmap)
+        print blockmap
 
     def delete_blockmap(self):
         """ delete the blockmap """
@@ -122,13 +119,21 @@ class Blockmap():
         return '.' in blockmap
 
     def init_blockmap(self):
-        """ initialize the blockmap if it does not exist """
+        """ initialize the blockmap if it does not exist, or clean it if it does exist """
         # create a new blockmap if it does not exist saved to disk
         if not os.path.exists(self._blockmap_path):
             # create a new blockmap and save it
             filesize = self._file_size_func(self._remote_path)
             blockmap = self.AVAILABLE * int(math.ceil(filesize / float(self._blocksize)))
-            self._persist_blockmap(blockmap)
+        else:
+            # clean the blockmap
+            blockmap = self._read_blockmap()
+            chars = list(set(blockmap))
+            for c in chars:
+                if c != '*':
+                    blockmap = blockmap.replace(c, self.AVAILABLE) 
+        self._persist_blockmap(blockmap)
+            
         
     def is_blockmap_complete(self):
         """ returns true if the blockmap shows that the entire file has been downloaded """
