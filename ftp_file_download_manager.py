@@ -1,5 +1,7 @@
+# --------------------------------------------------
+#    Imports
+# --------------------------------------------------
 from contextlib import closing
-import math
 import os
 import time
 from ftplib import FTP
@@ -7,7 +9,11 @@ from multiprocessing import Queue
 from threading import Thread
 from blockmap import Blockmap
 
-class FtpFileDownloader:    
+
+# --------------------------------------------------
+#    Classes
+# --------------------------------------------------
+class FtpFileDownloader:
     """ Performs downloading of a single file using FTP """
     def __init__(self, server_url, username, password, concurrent_connections, port, min_blocks_per_segment,
                  max_blocks_per_segment):
@@ -26,28 +32,21 @@ class FtpFileDownloader:
         self._port = port
         self._min_blocks_per_segment = min_blocks_per_segment
         self._max_blocks_per_segment = max_blocks_per_segment
-        
-        
+
         # setup the initial dead threads for each download connections
         self._download_threads = [Thread() for _ in range(0, concurrent_connections)]
 
     def _ftp_get_filesize(self, remote_path):
         ftp = FTP(self._server_url)
-        ftp.login(self._username, self._password)        
+        ftp.login(self._username, self._password)
         ftp.sendcmd("TYPE i")           # Switch to Binary mode
         size = ftp.size(remote_path)    # Get size of file
         ftp.sendcmd("TYPE A")           # Switch to Binary mode
         return size
 
-    def _save_block(self, local_path, byte_offset, data):
-        with open(local_path, 'r+b') as f:
-            f.seek(byte_offset)
-            f.write(job['data'])
-            f.close()
-
     def _tw_ftp_download_segment(self, com_queue_in, com_queue_out, remote_path, byte_offset, blocks, worker_id):
         # open an ftp connection to the server
-        with closing(FTP()) as ftp:            
+        with closing(FTP()) as ftp:
             # connect and login
             ftp.connect(self._server_url, self._port)
             ftp.login(self._username, self._password)
@@ -55,8 +54,8 @@ class FtpFileDownloader:
             # switch to FTP binary mode, then initiate a transfer starting at the byte_offset
             ftp.voidcmd('TYPE I')
             conn = ftp.transfercmd('retr %s' % remote_path, byte_offset)
-            conn.settimeout(30)            
-    
+            conn.settimeout(30)
+
             # loop until the correct amount of data has been transferred
             bytes_received = 0
             data = ''
@@ -70,14 +69,14 @@ class FtpFileDownloader:
                         return
                     else:
                         raise Exception('Unhandled incoming message type of "%s"' % msg['type'])
-                
+
                 # receive the data
                 chunk = conn.recv(self._blocksize)
 
                 # save the data
                 if chunk:
                     data = data + chunk
-                
+
                 # send data if greater than blocksize
                 if (len(data) > self._blocksize) or not chunk:
                     block = data[:self._blocksize]
@@ -89,21 +88,21 @@ class FtpFileDownloader:
                     byte_offset = byte_offset + self._blocksize
                     bytes_received = bytes_received + self._blocksize
                     t = time.time()
-                    
-                    # stop of EOF            
+
+                    # stop of EOF
                     if not chunk:
                         break
-                    
+
     def download_file(self, remote_path, local_path):
         """ downloads a file from a remote ftp server
-        
+
             Args:
                 remote_path - path to the remote file
                 local_path - file location to save the remote file to
-            
+
             Returns:
                 None
-            
+
             Exceptions:
                 Throws exceptions on error
         """
@@ -165,6 +164,6 @@ class FtpFileDownloader:
 
             # sleep
             time.sleep(0.1)
-        
+
         # clean up the block map
         blockmap.delete_blockmap()
