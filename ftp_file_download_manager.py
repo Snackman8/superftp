@@ -1,3 +1,4 @@
+""" class to download a file from an ftp server """
 # --------------------------------------------------
 #    Imports
 # --------------------------------------------------
@@ -13,7 +14,7 @@ from blockmap import Blockmap
 # --------------------------------------------------
 #    Classes
 # --------------------------------------------------
-class FtpFileDownloader:
+class FtpFileDownloader(object):
     """ Performs downloading of a single file using FTP """
     def __init__(self, server_url, username, password, concurrent_connections, port, min_blocks_per_segment,
                  max_blocks_per_segment):
@@ -37,6 +38,14 @@ class FtpFileDownloader:
         self._download_threads = [Thread() for _ in range(0, concurrent_connections)]
 
     def _ftp_get_filesize(self, remote_path):
+        """ return the file size of an ftp file on the ftp server
+
+            Args:
+                remote_path - path to the file on the ftp server
+
+            Returns:
+                number of bytes in the file
+        """
         ftp = FTP(self._server_url)
         ftp.login(self._username, self._password)
         ftp.sendcmd("TYPE i")           # Switch to Binary mode
@@ -45,6 +54,16 @@ class FtpFileDownloader:
         return size
 
     def _tw_ftp_download_segment(self, com_queue_in, com_queue_out, remote_path, byte_offset, blocks, worker_id):
+        """ thread worker to download a segment of a file from teh ftp server
+
+            Args:
+                com_queue_in - communication queue to send commands to this thread
+                com_queue_out - communication queue to send commands out of this thread to the main downloader loop
+                remote_path - path to the file to download on the ftp server
+                byte_offset - byte offset into the file to start downloading at
+                blocks - number of blocks to download, see self._blocksize for size of each block
+                worker_id - id of this worker thread, can be and of the characters in the set [0123456789ABCDEF]
+        """
         # open an ftp connection to the server
         with closing(FTP()) as ftp:
             # connect and login

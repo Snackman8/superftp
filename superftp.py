@@ -1,3 +1,5 @@
+""" superftp - multi-segmend ftp downloader"""
+
 # --------------------------------------------------
 #    Imports
 # --------------------------------------------------
@@ -9,12 +11,18 @@ from ftp_file_download_manager import FtpFileDownloader
 #    Main
 # --------------------------------------------------
 def run(args):
+    """ run function of the script
+
+        Args:
+            args - dictionary of arguments passed in from the command line
+    """
     ftp_downloader = FtpFileDownloader(args['server'], args['username'], args['password'], args['connections'],
                                        args['port'], args['min_blocks_per_segment'], args['max_blocks_per_segment'])
     ftp_downloader.download_file(args['remote_path'], args['local_path'])
 
 
 def main():
+    """ main function, handles parsing of arguments """
     parser = argparse.ArgumentParser(description=("Multi-segmented FTP downloader\n\nDownloads and FTP file using " +
                                                   "multiple threads concurrently."))
     parser.add_argument("--server", help="ftp server to connect to", required=True)

@@ -8,7 +8,7 @@ import os
 # --------------------------------------------------
 #    Classes
 # --------------------------------------------------
-class Blockmap():
+class Blockmap(object):
     """ class used to keep track of which blocks in the file have been downloaded, which are currently pending download
         by which connections, and which blocks are available.
 
@@ -57,6 +57,11 @@ class Blockmap():
             f.write(str(self._blocksize) + '\n' + blockmap)
 
     def set_pending_to_saving(self, worker_id):
+        """ set all pending blocks assigned to the worker_id to saving state
+
+            Args:
+                worker_id - worker id to change to saving state
+        """
         blockmap = self._read_blockmap()
         blockmap = blockmap.replace(worker_id, self.SAVING)
         self._persist_blockmap(blockmap)
@@ -107,7 +112,6 @@ class Blockmap():
 
         # set the status of the block
         blockmap = self._read_blockmap()
-        og_blockmap = blockmap
         starting_block = byte_offset / self._blocksize
         for i in range(0, blocks):
             blockmap = blockmap[:starting_block + i] + status + blockmap[starting_block + i + 1:]
@@ -119,6 +123,7 @@ class Blockmap():
         os.remove(self._blockmap_path)
 
     def has_available_blocks(self):
+        """ return true if there are any available blocks left in the blockmap """
         blockmap = self._read_blockmap()
         return '.' in blockmap
 
@@ -144,4 +149,5 @@ class Blockmap():
         return set(blockmap) == set('*')
 
     def is_blockmap_already_exists(self):
+        """ return true if a blockmap exists on the local disk """
         return os.path.exists(self._blockmap_path)

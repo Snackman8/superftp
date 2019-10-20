@@ -1,3 +1,4 @@
+""" simple ftp tests """
 # --------------------------------------------------
 #    Imports
 # --------------------------------------------------
@@ -16,37 +17,48 @@ from twisted.internet import reactor
 class TestFTP(unittest.TestCase):
     def _start_ftp_server(self, ftp_root_dir, port=2121):
         """ start the test ftp server
-        
+
             Args:
                 ftp_root_dir - root directory for the ftp server
                 port - port number for the ftp server
-            
+
             Returns:
                 thread running the ftp server
         """
         def tw_ftp_server():
             """ thread worker for the ftp server """
-            p = Portal(FTPRealm(ftp_root_dir), [AllowAnonymousAccess()])        
-            f = FTPFactory(p)        
+            p = Portal(FTPRealm(ftp_root_dir), [AllowAnonymousAccess()])
+            f = FTPFactory(p)
             reactor.listenTCP(port, f)
             reactor.run(installSignalHandlers=0)
-    
-        # launch a thread with the ftp server    
+
+        # launch a thread with the ftp server
         t = Thread(target=tw_ftp_server, args=())
         t.start()
         return t
 
     def _stop_ftp_server(self):
         """ stop the test ftp server """
-        reactor.callFromThread(reactor.stop)    
-        
+        reactor.callFromThread(reactor.stop)
+
     def setUp(self):
         """ start the test ftp server """
+        # generate the test data
         test_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'test_data')
+        if not os.path.exists(test_dir):
+            os.mkdir(test_dir)
+        filepath = os.path.join(test_dir, 'testfile.txt')
+        if not os.path.exists(filepath):
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            with open(filepath, 'w') as f:
+                for i in range(0, 512):
+                    f.write(str(i) + ' ' * (1024 * 1024))
+
         self._start_ftp_server(test_dir, 2121)
 
     def tearDown(self):
-        """ stop the fest ftp server """
+        """ stop the ftp server """
         self._stop_ftp_server()
 
     @unittest.skip("not implemented")
@@ -98,7 +110,7 @@ class TestFTP(unittest.TestCase):
     def test_mirror_single_file(self):
         """ test the mirroring of a single file """
         pass
-    
+
     @unittest.skip("not implemented")
     def test_mirror_directory(self):
         """ test the mirroring of an entire directory """
