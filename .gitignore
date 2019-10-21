@@ -1,5 +1,8 @@
+.coverage
 .project
 .pydevproject
-*.pyc
-tests/test_data
 
+*.pyc
+
+cover
+tests/results_*

@@ -8,6 +8,11 @@ import os
 # --------------------------------------------------
 #    Classes
 # --------------------------------------------------
+class BlockmapException(Exception):
+    """ Blockmap Exception Class """
+    pass
+
+
 class Blockmap(object):
     """ class used to keep track of which blocks in the file have been downloaded, which are currently pending download
         by which connections, and which blocks are available.
@@ -41,7 +46,7 @@ class Blockmap(object):
 
         # generate the blockmap_path
         if os.path.isdir(local_path):
-            raise Exception('Error! local path "%s" is a directory, must be a file' % local_path)
+            raise BlockmapException('Error! local path "%s" is a directory, must be a file' % local_path)
         self._blockmap_path = self._local_path + '.blockmap'
 
     def _read_blockmap(self):
@@ -65,6 +70,10 @@ class Blockmap(object):
         blockmap = self._read_blockmap()
         blockmap = blockmap.replace(worker_id, self.SAVING)
         self._persist_blockmap(blockmap)
+
+    @property
+    def blocksize(self):
+        return self._blocksize
 
     def allocate_segment(self, worker_id):
         """ allocate an available segment in the blockmap to the specified worker_id
@@ -104,11 +113,11 @@ class Blockmap(object):
         """
         # make sure byte_offset is a multiple of block size
         if byte_offset % self._blocksize != 0:
-            raise Exception('byte_offset %d is not a multiple of block size %d' % (byte_offset, self._blocksize))
+            raise BlockmapException('byte_offset %d is not a multiple of block size %d' % (byte_offset, self._blocksize))
 
         # make sure status is valid
         if status not in (self.AVAILABLE, self.DOWNLOADED) and status not in self.PENDING:
-            raise Exception('status of "%s" is not a valid status' % status)
+            raise BlockmapException('status of "%s" is not a valid status' % status)
 
         # set the status of the block
         blockmap = self._read_blockmap()
