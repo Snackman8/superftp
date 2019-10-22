@@ -9,12 +9,12 @@ from twisted.protocols.ftp import FTPFactory, FTPRealm
 from twisted.cred.portal import Portal
 from twisted.cred.checkers import AllowAnonymousAccess
 from twisted.internet import reactor
-
+from ftp_file_download_manager import FtpFileDownloader
 
 # --------------------------------------------------
 #    Test Classes
 # --------------------------------------------------
-class TestFTP(unittest.TestCase):
+class TestFTPFileDownloadManager(unittest.TestCase):
     def _start_ftp_server(self, ftp_root_dir, port=2121):
         """ start the test ftp server
 
@@ -66,9 +66,10 @@ class TestFTP(unittest.TestCase):
         """ test the download of a single chunk in a file comprised of many blocks """
         pass
 
-    @unittest.skip("not implemented")
     def test_small_file_download(self):
         """ test the download of a small simple file """
+        ftp = FtpFileDownloader('localhost', 'anonymous', 'password', 1, 2121, 1, 2)
+
         pass
 
     @unittest.skip("not implemented")

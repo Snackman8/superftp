@@ -5,4 +5,5 @@
 *.pyc
 
 cover
+superftp_venv
 tests/results_*
