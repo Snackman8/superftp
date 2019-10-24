@@ -7,3 +7,4 @@
 cover
 superftp_venv
 tests/results_*
+tests/test_data

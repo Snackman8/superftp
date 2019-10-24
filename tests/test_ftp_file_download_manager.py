@@ -2,19 +2,26 @@
 # --------------------------------------------------
 #    Imports
 # --------------------------------------------------
+import filecmp
 import os
+import Queue
+import shutil
+import time
 from threading import Thread
 import unittest
-from twisted.protocols.ftp import FTPFactory, FTPRealm
-from twisted.cred.portal import Portal
-from twisted.cred.checkers import AllowAnonymousAccess
-from twisted.internet import reactor
+
+from pyftpdlib.authorizers import DummyAuthorizer
+from pyftpdlib.handlers import FTPHandler
+from pyftpdlib.servers import MultiprocessFTPServer
+
 from ftp_file_download_manager import FtpFileDownloader
+
 
 # --------------------------------------------------
 #    Test Classes
 # --------------------------------------------------
 class TestFTPFileDownloadManager(unittest.TestCase):
+    """ unit tests for ftp_file_download_manager """
     def _start_ftp_server(self, ftp_root_dir, port=2121):
         """ start the test ftp server
 
@@ -27,10 +34,22 @@ class TestFTPFileDownloadManager(unittest.TestCase):
         """
         def tw_ftp_server():
             """ thread worker for the ftp server """
-            p = Portal(FTPRealm(ftp_root_dir), [AllowAnonymousAccess()])
-            f = FTPFactory(p)
-            reactor.listenTCP(port, f)
-            reactor.run(installSignalHandlers=0)
+            authorizer = DummyAuthorizer()
+            authorizer.add_user('user', '12345', ftp_root_dir, perm='elradfmwMT')
+
+            # Instantiate FTP handler class
+            handler = FTPHandler
+            handler.authorizer = authorizer
+            server = MultiprocessFTPServer(('', port), handler)
+            server.max_cons = 256
+            server.max_cons_per_ip = 5
+
+            # start ftp server
+            while self._com_queue.empty():
+                server.serve_forever(timeout=0.1, blocking=False)
+            self._com_queue.get()
+            server.close_all()
+            time.sleep(1)
 
         # launch a thread with the ftp server
         t = Thread(target=tw_ftp_server, args=())
@@ -39,23 +58,24 @@ class TestFTPFileDownloadManager(unittest.TestCase):
 
     def _stop_ftp_server(self):
         """ stop the test ftp server """
-        reactor.callFromThread(reactor.stop)
+        self._com_queue.put('STOP')
 
     def setUp(self):
         """ start the test ftp server """
         # generate the test data
-        test_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'test_data')
-        if not os.path.exists(test_dir):
-            os.mkdir(test_dir)
-        filepath = os.path.join(test_dir, 'testfile.txt')
-        if not os.path.exists(filepath):
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            with open(filepath, 'w') as f:
-                for i in range(0, 512):
-                    f.write(str(i) + ' ' * (1024 * 1024))
-
-        self._start_ftp_server(test_dir, 2121)
+        self._com_queue = Queue.Queue()
+        self._results_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)),
+                                         'results_ftp_file_download_manager')
+        if not os.path.exists(self._results_dir):
+            os.mkdir(self._results_dir)
+        self._test_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'test_data')
+        shutil.rmtree(self._test_dir)
+        os.mkdir(self._test_dir)
+        filepath = os.path.join(self._test_dir, 'testfile.txt')
+        with open(filepath, 'w') as f:
+            for i in range(0, 20):
+                f.write(str(i) + '.' * (1024 * 1024) + '\n')
+        self._start_ftp_server(self._test_dir, 2121)
 
     def tearDown(self):
         """ stop the ftp server """
@@ -66,16 +86,14 @@ class TestFTPFileDownloadManager(unittest.TestCase):
         """ test the download of a single chunk in a file comprised of many blocks """
         pass
 
-    def test_small_file_download(self):
+    def test_file_download(self):
         """ test the download of a small simple file """
-        ftp = FtpFileDownloader('localhost', 'anonymous', 'password', 1, 2121, 1, 2)
-
-        pass
-
-    @unittest.skip("not implemented")
-    def test_large_file_download(self):
-        """ test the download of a single chunk in a file comprised of many blocks """
-        pass
+        if os.path.exists(os.path.join(self._results_dir, 'testfile.txt')):
+            os.remove(os.path.join(self._results_dir, 'testfile.txt'))
+        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2)
+        ftp.download_file('testfile.txt', self._results_dir)
+        self.assertTrue(filecmp.cmp(os.path.join(self._test_dir, 'testfile.txt'),
+                                    os.path.join(self._results_dir, 'testfile.txt'), shallow=False))
 
     @unittest.skip("not implemented")
     def test_bad_server_address(self):

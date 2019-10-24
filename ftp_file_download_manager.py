@@ -46,7 +46,8 @@ class FtpFileDownloader(object):
             Returns:
                 number of bytes in the file
         """
-        ftp = FTP(self._server_url)
+        ftp = FTP()
+        ftp.connect(self._server_url, self._port)
         ftp.login(self._username, self._password)
         ftp.sendcmd("TYPE i")           # Switch to Binary mode
         size = ftp.size(remote_path)    # Get size of file
@@ -65,7 +66,8 @@ class FtpFileDownloader(object):
                 worker_id - id of this worker thread, can be and of the characters in the set [0123456789ABCDEF]
         """
         # open an ftp connection to the server
-        with closing(FTP()) as ftp:
+        ftp = FTP()
+        with closing(ftp):
             # connect and login
             ftp.connect(self._server_url, self._port)
             ftp.login(self._username, self._password)

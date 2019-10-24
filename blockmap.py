@@ -1,3 +1,5 @@
+""" blockmap module """
+
 # --------------------------------------------------
 #    Imports
 # --------------------------------------------------
@@ -73,6 +75,7 @@ class Blockmap(object):
 
     @property
     def blocksize(self):
+        """ return the blocksize """
         return self._blocksize
 
     def allocate_segment(self, worker_id):
@@ -113,7 +116,8 @@ class Blockmap(object):
         """
         # make sure byte_offset is a multiple of block size
         if byte_offset % self._blocksize != 0:
-            raise BlockmapException('byte_offset %d is not a multiple of block size %d' % (byte_offset, self._blocksize))
+            raise BlockmapException('byte_offset %d is not a multiple of block size %d' % (byte_offset,
+                                                                                           self._blocksize))
 
         # make sure status is valid
         if status not in (self.AVAILABLE, self.DOWNLOADED) and status not in self.PENDING:

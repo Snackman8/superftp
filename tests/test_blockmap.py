@@ -8,6 +8,7 @@
 import os
 import shutil
 import unittest
+
 from blockmap import Blockmap, BlockmapException
 
 
@@ -107,7 +108,7 @@ class TestBlockmap(unittest.TestCase):
         """ test blockmaps are initialized correctly """
         # test for a multiple of blocksize, and a non-multiple of block size
         for x in [(1024 * 1024 * 8, '........'),
-                  (1024 * 1024 * 8.1, '.........'),]:
+                  (1024 * 1024 * 8.1, '.........')]:
             blockmap = self._create_blockmap(x[0])
             blockmap.init_blockmap()
 
