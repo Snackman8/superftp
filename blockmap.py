@@ -26,7 +26,8 @@ class Blockmap(object):
     SAVING = '_'
     PENDING = '0123456789ABCDEF'
 
-    def __init__(self, remote_path, local_path, file_size_func, min_blocks_per_segment, max_blocks_per_segment):
+    def __init__(self, remote_path, local_path, file_size_func, min_blocks_per_segment, max_blocks_per_segment,
+                 blocksize):
         """ initialize the blockmap
 
             Check if a local blockmap exists in the local_path location, if it does not exist, try to contact the FTP
@@ -35,11 +36,14 @@ class Blockmap(object):
             Args:
                 remote_path - path on ftp server of file to download
                 local_path - local path on disk where downloaded file will be saved
-                max_blocks_per_segment - maximum number of blocks per download segment
                 file_size_func - a function that can be called to get the file size of the file on the FTP server, the
                                  prototype for this function is file_size_func(remote_path) returns an int
+                min_blocks_per_segment - minimum number of blocks per download segment
+                max_blocks_per_segment - maximum number of blocks per download segment
+                blocksize - size of each block in bytes
         """
-        self._blocksize = 1024 * 1024
+#        self._blocksize = 1024 * 1024
+        self._blocksize = blocksize
         self._remote_path = remote_path
         self._local_path = local_path
         self._file_size_func = file_size_func
@@ -50,6 +54,14 @@ class Blockmap(object):
         if os.path.isdir(local_path):
             raise BlockmapException('Error! local path "%s" is a directory, must be a file' % local_path)
         self._blockmap_path = self._local_path + '.blockmap'
+
+    def __str__(self):
+        """ string representation of the blockmap """
+        try:
+            blockmap = self._read_blockmap()
+            return str(blockmap)
+        except Exception, _:
+            return ''
 
     def _read_blockmap(self):
         """ load the blockmap from the local copy """
@@ -129,13 +141,21 @@ class Blockmap(object):
         for i in range(0, blocks):
             blockmap = blockmap[:starting_block + i] + status + blockmap[starting_block + i + 1:]
         self._persist_blockmap(blockmap)
-        print blockmap
 
     def delete_blockmap(self):
         """ delete the blockmap """
         os.remove(self._blockmap_path)
 
+    def get_statistics(self):
+        """ return statistics about the blockmap
+
+            returns a tuple of (available blocks, number of blocks)
+        """
+        blockmap = self._read_blockmap()
+        return (len(blockmap) - blockmap.count('*'), len(blockmap), self._blocksize)
+
     def has_available_blocks(self):
+        # TODO: remove this function and replace code with get_statistics
         """ return true if there are any available blocks left in the blockmap """
         blockmap = self._read_blockmap()
         return '.' in blockmap
