@@ -74,6 +74,7 @@ def display_full(ftp_download_manager, blockmap, remote_filepath):
 
     # move to top of screen and emit the summary line
     sys.stdout.write('\033[0;0H')
+    sys.stdout.write('\033[%dm' % 97)   # bright white
     s = 'ETA:%-13s %0.1f%%  %0.3fMB/sec  ' % (eta, percent_complete, download_speed / 1024 / 1024)
     s = s + remote_filepath[max(0, len(remote_filepath) - (columns - len(s))):]
     sys.stdout.write(('%%-%ds' % columns) % s)
@@ -90,10 +91,19 @@ def display_full(ftp_download_manager, blockmap, remote_filepath):
         worker_id = format(i, 'x')
         fifo_depth = len(dlspeeds[worker_id])
         for j in range(0, fifo_depth):
+            # calculate the speed
+            speed = dlspeeds[worker_id][-(j + 1)] / 1024 / 1024
             # move to cursor position
             sys.stdout.write('\033[%d;%dH' % (j + 3, i * 10))
+            # set the color
+            if speed == 0:
+                sys.stdout.write('\033[%dm' % 37)   # white
+            elif speed < 0.256:
+                sys.stdout.write('\033[%dm' % 91)   # red
+            else:
+                sys.stdout.write('\033[%dm' % 92)   # green
             # print the download speed
-            sys.stdout.write('[%0.3f]' % (dlspeeds[worker_id][-(j + 1)] / 1024 / 1024))
+            sys.stdout.write('[%0.3f]' % speed)
             # clear the remainder of the line
             sys.stdout.write('\033[K')
 
@@ -114,7 +124,19 @@ def display_full(ftp_download_manager, blockmap, remote_filepath):
 
     for i in range(0, rows - y):
         sys.stdout.write('\033[%d;%dH' % (y + i, 0))
-        sys.stdout.write(s[i * columns: (i + 1) * columns] + '\033[K')
+        t = s[i * columns: (i + 1) * columns]
+        color_string = ''
+        for c in t:
+            if c in blockmap.PENDING:
+                color_string = color_string + '\033[93m'     # bright yellow
+            elif c in blockmap.SAVING:
+                color_string = color_string + '\033[93m'     # bright yellow
+            elif c == blockmap.DOWNLOADED:
+                color_string = color_string + '\033[92m'     # bright green
+            else:
+                color_string = color_string + '\033[97m'     # bright white
+            color_string = color_string + c
+        sys.stdout.write(color_string + '\033[K')
         if (i + 1) * columns > len(s):
             break
 
