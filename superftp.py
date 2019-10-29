@@ -64,7 +64,7 @@ def display_compact(ftp_download_manager, blockmap, remote_filepath):
     sys.stdout.flush()
 
 
-def display_full(_no_ascii, ftp_download_manager, blockmap, remote_filepath):
+def display_full(ftp_download_manager, blockmap, remote_filepath):
     """ display full screen update """
     rows, columns = os.popen('stty size', 'r').read().split()
     rows = int(rows)
@@ -126,12 +126,11 @@ def display_full(_no_ascii, ftp_download_manager, blockmap, remote_filepath):
 # --------------------------------------------------
 #    Event Handlers
 # --------------------------------------------------
-def on_block_downloaded(display_mode, noascii, *_args, **kwargs):
+def on_block_downloaded(display_mode, *_args, **kwargs):
     """ event handler for when a block has been downloaded, used to refresh the screen
 
         Args:
             display_mode - mode to display on the screen
-            noascii - if true, do not use ANSI ascii formatting characters
             args - None
             kwargs - ftp_download_mananger, blockmap, remote_filepath
     """
@@ -141,7 +140,7 @@ def on_block_downloaded(display_mode, noascii, *_args, **kwargs):
     elif display_mode == 'compact':
         display_compact(kwargs['ftp_download_manager'], kwargs['blockmap'], kwargs['remote_filepath'])
     elif display_mode == 'full':
-        display_full(noascii, kwargs['ftp_download_manager'], kwargs['blockmap'], kwargs['remote_filepath'])
+        display_full(kwargs['ftp_download_manager'], kwargs['blockmap'], kwargs['remote_filepath'])
     else:
         raise Exception('Unknown display mode of %s' % display_mode)
 
@@ -165,7 +164,7 @@ def run(args):
                                        args['blocksize'])
 
     # download
-    ftp_downloader.on_block_downloaded = partial(on_block_downloaded, args['display_mode'], args['noascii'])
+    ftp_downloader.on_block_downloaded = partial(on_block_downloaded, args['display_mode'])
     try:
         ftp_downloader.download_file(args['remote_path'], args['local_path'])
     except KeyboardInterrupt:
@@ -190,7 +189,6 @@ def main():
                         help="maximum number of contiguous 1MB blocks per connection", type=int, default=128)
     parser.add_argument("--display_mode", help="quiet, compact, full",
                         default='full')
-    parser.add_argument("--noascii", help="do not use ascii terminal", action="store_true")
     parser.add_argument("--clean", help="clean any existing downloaded files", action="store_true")
     parser.add_argument("--blocksize", help="size in bytes of each block to download", type=int, default=1024 * 1024)
     args = parser.parse_args()
