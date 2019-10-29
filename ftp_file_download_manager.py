@@ -6,7 +6,7 @@ from contextlib import closing
 import os
 import time
 from ftplib import FTP
-from multiprocessing import Queue
+from Queue import Queue, PriorityQueue
 from threading import Thread
 from blockmap import Blockmap
 
@@ -20,6 +20,10 @@ class FtpFileDownloader(object):
         set the on_block_downloaded to a function handler of type f(blockmap, byte_offset, worker_id)
         set the on_download_speed_calculated to a function handler of type f(speed, worker_id)
     """
+
+    # constants
+    HIGH_PRIORITY_MSG = 0
+    LOW_PRIORITY_MSG = 100
 
     # depth of the FIFO to track download speeds
     SPEED_FIFO_SIZE = 4
@@ -44,8 +48,8 @@ class FtpFileDownloader(object):
         self._max_blocks_per_segment = max_blocks_per_segment
         self._com_queue_in = None
         self._com_queue_out = None
-        self._worker_download_speeds = {format(k, 'x'):
-                                        [0] * self.SPEED_FIFO_SIZE for k in range(0, concurrent_connections)}
+        self._worker_dl_speeds = {format(k, 'x'):
+                                  [0] * self.SPEED_FIFO_SIZE for k in range(0, concurrent_connections)}
 
         # handlers
         self.on_block_downloaded = None
@@ -118,8 +122,8 @@ class FtpFileDownloader(object):
                     speed = bytes_since_last_second / (time.time() - t)
                     t = time.time()
                     bytes_since_last_second = 0
-                    self._worker_download_speeds[worker_id].insert(0, speed)
-                    self._worker_download_speeds[worker_id] = self._worker_download_speeds[worker_id][:self.SPEED_FIFO_SIZE]
+                    self._worker_dl_speeds[worker_id].insert(0, speed)
+                    self._worker_dl_speeds[worker_id] = self._worker_dl_speeds[worker_id][:self.SPEED_FIFO_SIZE]
 
                 # save the data
                 if chunk:
@@ -129,8 +133,16 @@ class FtpFileDownloader(object):
                 while (len(data) > self._blocksize) or not chunk:
                     block = data[:self._blocksize]
                     data = data[self._blocksize:]
-                    self._com_queue_out.put({'type': 'data_received', 'worker_id': worker_id,
-                                             'byte_offset': byte_offset, 'data': block})
+
+                    # enqueue a high priority data received for quickly update the UI that the block has been downloaded
+                    # and is pending saving
+                    self._com_queue_out.put((self.HIGH_PRIORITY_MSG,
+                                             {'type': 'data_received_high_priority', 'worker_id': worker_id,
+                                              'byte_offset': byte_offset}))
+                    # enqueue a low priority data received to actually save the data
+                    self._com_queue_out.put((self.LOW_PRIORITY_MSG,
+                                             {'type': 'data_received_low_priority', 'worker_id': worker_id,
+                                              'byte_offset': byte_offset, 'data': block}))
                     byte_offset = byte_offset + self._blocksize
                     bytes_received = bytes_received + self._blocksize
 
@@ -139,7 +151,7 @@ class FtpFileDownloader(object):
                         break
 
         # set the download speed to zero
-        self._worker_download_speeds[worker_id] = [0] * self.SPEED_FIFO_SIZE
+        self._worker_dl_speeds[worker_id] = [0] * self.SPEED_FIFO_SIZE
 
     @property
     def concurrent_connections(self):
@@ -147,9 +159,9 @@ class FtpFileDownloader(object):
         return self._concurrent_connections
 
     @property
-    def worker_download_speeds(self):
+    def worker_dl_speeds(self):
         """ return an estimate of the current worker download speeds """
-        return self._worker_download_speeds
+        return self._worker_dl_speeds
 
     @classmethod
     def clean_local_file(cls, remote_path, local_path):
@@ -208,49 +220,61 @@ class FtpFileDownloader(object):
         blockmap.init_blockmap()
 
         # setup the communication queues
-        self._com_queue_in = Queue()      # from manager to download thread
-        self._com_queue_out = Queue()     # from download  thread to manager
+        self._com_queue_in = Queue()            # from manager to download thread
+        self._com_queue_out = PriorityQueue()   # from download thread to manager
 
         # loop until file is downloaded
-        tags = {}
         while not blockmap.is_blockmap_complete():
             # look for an idle download thread
             for i in range(0, len(self._download_threads)):
                 if not self._download_threads[i].is_alive():
                     if blockmap.has_available_blocks():
-                        worker_id = format(i, 'x')
-                        # assume any pending blocks for this thread are in a saving state
-                        blockmap.set_pending_to_saving(worker_id)
                         # allocate new blocks
+                        worker_id = format(i, 'x')
                         byte_offset, blocks = blockmap.allocate_segment(worker_id)
                         self._download_threads[i] = Thread(target=self._tw_ftp_download_segment,
                                                            args=(remote_path, byte_offset, blocks, worker_id))
                         self._download_threads[i].start()
 
             # process the message queue from the thread
-            while not self._com_queue_out.empty():
-                msg = self._com_queue_out.get()
-                if msg['type'] == 'data_received':
+            if not self._com_queue_out.empty():
+                # handle all high priority messages
+                while True:
+                    # get the next message
+                    msg = self._com_queue_out.get()
+
+                    # kick out if this is not a high priority message
+                    if msg[0] != self.HIGH_PRIORITY_MSG:
+                        break
+
+                    # update the blockmap to show the block has been downloaded and is pending save to disk
+                    if msg[1]['type'] == 'data_received_high_priority':
+                        blockmap.change_block_range_status(msg[1]['byte_offset'], 1, blockmap.SAVING)
+                    else:
+                        raise Exception('Unhandled msg type "%s"' % msg[1]['type'])
+
+                # handle only one low priority message, then go give time to the threads
+                if msg[1]['type'] == 'data_received_low_priority':
                     # save the block
                     with open(local_path, 'r+b') as f:
-                        f.seek(msg['byte_offset'])
-                        f.write(msg['data'])
+                        f.seek(msg[1]['byte_offset'])
+                        f.write(msg[1]['data'])
                         f.close()
                     # update the blockmap
-                    blockmap.change_block_range_status(msg['byte_offset'], 1, '*')
+                    blockmap.change_block_range_status(msg[1]['byte_offset'], 1, blockmap.DOWNLOADED)
 
                     # disable pyling warning for self.on_block_downloaded not callable
-                    #pylint: disable=E1102
+                    # pylint: disable=E1102
                     if self.on_block_downloaded:
-                        kwargs = {'blockmap': blockmap, 'byte_offset': byte_offset, 'tags': tags,
-                                'worker_id': msg['worker_id'], 'ftp_download_manager': self,
-                                'remote_filepath': remote_path}
+                        kwargs = {'blockmap': blockmap, 'byte_offset': byte_offset,
+                                  'worker_id': msg[1]['worker_id'], 'ftp_download_manager': self,
+                                  'remote_filepath': remote_path}
                         self.on_block_downloaded(self, **kwargs)
                 else:
                     raise Exception('Unhandled msg type "%s"' % msg['type'])
 
             # sleep
-            time.sleep(0.1)
+            time.sleep(0.001)
 
         # clean up the block map
         blockmap.delete_blockmap()

@@ -57,11 +57,11 @@ class Blockmap(object):
 
     def __str__(self):
         """ string representation of the blockmap """
-        try:
+        s = ''
+        if self.is_blockmap_already_exists():
             blockmap = self._read_blockmap()
-            return str(blockmap)
-        except Exception, _:
-            return ''
+            s = str(blockmap)
+        return s
 
     def _read_blockmap(self):
         """ load the blockmap from the local copy """
@@ -74,16 +74,6 @@ class Blockmap(object):
         """ save the blockmap to disk """
         with open(self._blockmap_path, 'w') as f:
             f.write(str(self._blocksize) + '\n' + blockmap)
-
-    def set_pending_to_saving(self, worker_id):
-        """ set all pending blocks assigned to the worker_id to saving state
-
-            Args:
-                worker_id - worker id to change to saving state
-        """
-        blockmap = self._read_blockmap()
-        blockmap = blockmap.replace(worker_id, self.SAVING)
-        self._persist_blockmap(blockmap)
 
     @property
     def blocksize(self):
@@ -132,7 +122,7 @@ class Blockmap(object):
                                                                                            self._blocksize))
 
         # make sure status is valid
-        if status not in (self.AVAILABLE, self.DOWNLOADED) and status not in self.PENDING:
+        if status not in (self.AVAILABLE, self.DOWNLOADED, self.SAVING) and status not in self.PENDING:
             raise BlockmapException('status of "%s" is not a valid status' % status)
 
         # set the status of the block

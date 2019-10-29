@@ -14,6 +14,15 @@ from ftp_file_download_manager import FtpFileDownloader
 #    Functions
 # --------------------------------------------------
 def calculate_download_statistics(ftp_download_manager, blockmap):
+    """ calculate the download statistics, this is shared by all of the display functions
+
+        Args:
+            ftp_download_manager - the ftp_download_manager
+            blockmap - the blockmap
+
+        Returns
+            eta, percent_complete, download_speed
+    """
     # calculate some common parameters
     (available_blocks, total_blocks, blocksize) = blockmap.get_statistics()
 
@@ -22,11 +31,18 @@ def calculate_download_statistics(ftp_download_manager, blockmap):
     for i in range(0, ftp_download_manager.concurrent_connections):
         worker_id = format(i, 'x')
         download_speed = (download_speed +
-                          sum(ftp_download_manager.worker_download_speeds[worker_id]) /
-                          len(ftp_download_manager.worker_download_speeds[worker_id]))
+                          sum(ftp_download_manager.worker_dl_speeds[worker_id]) /
+                          len(ftp_download_manager.worker_dl_speeds[worker_id]))
+
+    # calculate % complete
+    percent_complete = float(total_blocks - available_blocks) / total_blocks * 100
+
     # calculate ETA
     if download_speed == 0:
-        eta = 'infinite'
+        if percent_complete == 100:
+            eta = 'done'
+        else:
+            eta = 'infinite'
     else:
         eta = (available_blocks * blocksize) / download_speed
         if eta < 120:
@@ -34,34 +50,22 @@ def calculate_download_statistics(ftp_download_manager, blockmap):
         else:
             eta = '%0.1f minutes' % (eta / 60)
 
-    # calculate % complete
-    percent_complete = float(total_blocks - available_blocks) / total_blocks * 100
-
     # success
     return (eta, percent_complete, download_speed)
 
 
-def display_compact(no_ascii, ftp_download_manager, blockmap, remote_filepath, tags):
+def display_compact(ftp_download_manager, blockmap, remote_filepath):
+    """ display compact screen update on one line """
     eta, percent_complete, download_speed = calculate_download_statistics(ftp_download_manager, blockmap)
 
-    if not no_ascii:
-        if not tags.get('first_output', True):
-            sys.stdout.write('\b' * 79)
- 
     s = 'ETA:%-13s %0.1f%%  %0.3fMB/sec  ' % (eta, percent_complete, download_speed / 1024 / 1024)
     s = s + remote_filepath[max(0, len(remote_filepath) - (79 - len(s))):]
-    sys.stdout.write('%-79s' % s)
+    sys.stdout.write('\r%-79s' % s)
     sys.stdout.flush()
-    tags['first_output'] = False
 
-def decimate_blockmap_str(blockmap_str, cells):
-    ratio = float(len(blockmap_str)) / cells
-    s = ''
-    for i in range(0, cells):
-        s = s + blockmap_str[int(i * ratio)]
-    return s
 
-def display_full(no_ascii, ftp_download_manager, blockmap, remote_filepath, tags):
+def display_full(_no_ascii, ftp_download_manager, blockmap, remote_filepath):
+    """ display full screen update """
     rows, columns = os.popen('stty size', 'r').read().split()
     rows = int(rows)
     columns = int(columns)
@@ -81,7 +85,7 @@ def display_full(no_ascii, ftp_download_manager, blockmap, remote_filepath, tags
 
     # show the speed fifos
     fifo_depth = 0
-    dlspeeds = ftp_download_manager.worker_download_speeds
+    dlspeeds = ftp_download_manager.worker_dl_speeds
     for i in range(0, ftp_download_manager.concurrent_connections):
         worker_id = format(i, 'x')
         fifo_depth = len(dlspeeds[worker_id])
@@ -89,7 +93,7 @@ def display_full(no_ascii, ftp_download_manager, blockmap, remote_filepath, tags
             # move to cursor position
             sys.stdout.write('\033[%d;%dH' % (j + 3, i * 10))
             # print the download speed
-            sys.stdout.write('[%0.3f]' % (dlspeeds[worker_id][-(j + 1)]  / 1024 / 1024))
+            sys.stdout.write('[%0.3f]' % (dlspeeds[worker_id][-(j + 1)] / 1024 / 1024))
             # clear the remainder of the line
             sys.stdout.write('\033[K')
 
@@ -102,7 +106,12 @@ def display_full(no_ascii, ftp_download_manager, blockmap, remote_filepath, tags
     s = str(blockmap)
     cells = (rows - y) * columns
     if len(s) > cells:
-        s = decimate_blockmap_str(s, cells)
+        blockmap_str = s
+        ratio = float(len(blockmap_str)) / cells
+        s = ''
+        for i in range(0, cells):
+            s = s + blockmap_str[int(i * ratio)]
+
     for i in range(0, rows - y):
         sys.stdout.write('\033[%d;%dH' % (y + i, 0))
         sys.stdout.write(s[i * columns: (i + 1) * columns] + '\033[K')
@@ -111,24 +120,28 @@ def display_full(no_ascii, ftp_download_manager, blockmap, remote_filepath, tags
 
     # clear the rest of the screen
     sys.stdout.write('\033[J')
-
     sys.stdout.flush()
-
 
 
 # --------------------------------------------------
 #    Event Handlers
 # --------------------------------------------------
-def on_block_downloaded(display_mode, noascii, *args, **kwargs):
+def on_block_downloaded(display_mode, noascii, *_args, **kwargs):
+    """ event handler for when a block has been downloaded, used to refresh the screen
+
+        Args:
+            display_mode - mode to display on the screen
+            noascii - if true, do not use ANSI ascii formatting characters
+            args - None
+            kwargs - ftp_download_mananger, blockmap, remote_filepath
+    """
     if display_mode == 'quiet':
         # no display when quiet
         return
     elif display_mode == 'compact':
-        display_compact(noascii, kwargs['ftp_download_manager'], kwargs['blockmap'], kwargs['remote_filepath'],
-                        kwargs['tags'])
+        display_compact(kwargs['ftp_download_manager'], kwargs['blockmap'], kwargs['remote_filepath'])
     elif display_mode == 'full':
-        display_full(noascii, kwargs['ftp_download_manager'], kwargs['blockmap'], kwargs['remote_filepath'],
-                     kwargs['tags'])
+        display_full(noascii, kwargs['ftp_download_manager'], kwargs['blockmap'], kwargs['remote_filepath'])
     else:
         raise Exception('Unknown display mode of %s' % display_mode)
 
@@ -159,6 +172,7 @@ def run(args):
         ftp_downloader.abort_download()
     print
 
+
 def main():
     """ main function, handles parsing of arguments """
     parser = argparse.ArgumentParser(description=("Multi-segmented FTP downloader\n\nDownloads and FTP file using " +
@@ -180,7 +194,6 @@ def main():
     parser.add_argument("--clean", help="clean any existing downloaded files", action="store_true")
     parser.add_argument("--blocksize", help="size in bytes of each block to download", type=int, default=1024 * 1024)
     args = parser.parse_args()
-    print args
     run(vars(args))
 
 

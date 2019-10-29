@@ -90,7 +90,7 @@ class TestFTPFileDownloadManager(unittest.TestCase):
         """ test the download of a small simple file """
         if os.path.exists(os.path.join(self._results_dir, 'testfile.txt')):
             os.remove(os.path.join(self._results_dir, 'testfile.txt'))
-        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2)
+        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2, 1048576)
         ftp.download_file('testfile.txt', self._results_dir)
         self.assertTrue(filecmp.cmp(os.path.join(self._test_dir, 'testfile.txt'),
                                     os.path.join(self._results_dir, 'testfile.txt'), shallow=False))

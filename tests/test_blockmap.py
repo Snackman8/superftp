@@ -29,7 +29,7 @@ class TestBlockmap(unittest.TestCase):
             return filesize
 
         # create the blockmap, delete it if it exists already
-        blockmap = Blockmap('testfile.txt', os.path.join(self._results_dir, 'test.txt'), filesize_func, 1, 3)
+        blockmap = Blockmap('testfile.txt', os.path.join(self._results_dir, 'test.txt'), filesize_func, 1, 3, 1048576)
         if delete_if_exists:
             if blockmap.is_blockmap_already_exists():
                 blockmap.delete_blockmap()
@@ -62,7 +62,7 @@ class TestBlockmap(unittest.TestCase):
     def test_blockmap_bad_local_dir(self):
         """ tests that blockmap raises exception if a directory is passed in as local dir """
         try:
-            Blockmap('testfile.txt', self._results_dir, None, 1, 1)
+            Blockmap('testfile.txt', self._results_dir, None, 1, 1, 1048576)
         except BlockmapException, _:
             pass
         else:
@@ -147,7 +147,7 @@ class TestBlockmap(unittest.TestCase):
         self._verify_blockmap(blockmap, '00000001')
 
         # set pending to saving
-        blockmap.set_pending_to_saving('1')
+        blockmap.change_block_range_status(1024 * 1024 * 7, 1, '_')
         self._verify_blockmap(blockmap, '0000000_')
 
         # save the 4th and 5th block
