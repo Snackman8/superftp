@@ -18,8 +18,7 @@ from blockmap import Blockmap
 class FtpFileDownloader(object):
     """ Performs downloading of a single file using FTP
 
-        set the on_block_downloaded to a function handler of type f(blockmap, byte_offset, worker_id)
-        set the on_download_speed_calculated to a function handler of type f(speed, worker_id)
+        set the on_refresh_display to a function handler of type f(blockmap, byte_offset, worker_id)
     """
 
     # constants
@@ -58,14 +57,14 @@ class FtpFileDownloader(object):
                                                [0] * self.SPEED_FIFO_SIZE) for k in range(0, concurrent_connections)])
 
         # handlers
-        self.on_block_downloaded = None
-        self.on_download_speed_calculated = None
+        self.on_refresh_display = None
 
         # setup the initial dead threads for each download connections
         self._download_threads = OrderedDict([(format(k, 'x'),
                                                Thread()) for k in range(0, concurrent_connections)])
         for k in self._download_threads.keys():
             self._download_threads[k].private_thread_state = self.IDLE
+            self._download_threads[k].private_start_time = time.time()
 
     def _ftp_get_filesize(self, remote_path):
         """ return the file size of an ftp file on the ftp server
@@ -132,12 +131,13 @@ class FtpFileDownloader(object):
 
                 # calculate the speed and save it to the FIFO.  new speeds are pushed in at index 0
                 bytes_since_last_second = bytes_since_last_second + len(chunk)
-                if (time.time() - t) > 0.5:
+                if (time.time() - t) > 1.0:
                     speed = bytes_since_last_second / (time.time() - t)
                     t = time.time()
                     bytes_since_last_second = 0
-                    self._worker_dl_speeds[worker_id].insert(0, speed)
-                    self._worker_dl_speeds[worker_id] = self._worker_dl_speeds[worker_id][:self.SPEED_FIFO_SIZE]
+                    self._com_queue_out.put((self.HIGH_PRIORITY_MSG,
+                                             {'type': 'dl_speed_update_high_priority', 'worker_id': worker_id,
+                                              'dl_speed': speed}))
 
                 # save the data
                 if chunk:
@@ -163,9 +163,6 @@ class FtpFileDownloader(object):
                     # stop of EOF
                     if not chunk:
                         break
-
-            # set the download speed to zero
-            self._worker_dl_speeds[worker_id] = [0] * self.SPEED_FIFO_SIZE
 
             # set the thread to be idle
             self._com_queue_out.put((self.HIGH_PRIORITY_MSG,
@@ -264,15 +261,18 @@ class FtpFileDownloader(object):
         # loop until file is downloaded
         while not blockmap.is_blockmap_complete():
             # check if we need to kill any download threads because they have stalled
+            # kill speed must be set to greater than zero, and the download thread must be at least 10 seconds old
+            # the download speed usually ramps up if the server is far away so we give it time to ramp up before
+            # checking if it has stalled or is stuck on a very slow packet path
             if self._kill_speed > 0:
                 for k in self.worker_dl_speeds.keys():
                     # check the speed if the thread is active
-                    if self._download_threads[k].private_thread_state == self.ACTIVE:
+                    if (self._download_threads[k].private_thread_state == self.ACTIVE and
+                            time.time() - self._download_threads[k].private_start_time > 20):
                         # do not kill if we are still starting up, we can tell since we have 0 speeds
                         if 0 not in self.worker_dl_speeds[k]:
                             # kill if the average speed
-                            avg_speed = (sum(self.worker_dl_speeds[k]) / len(self.worker_dl_speeds[k])) / 1024 / 1024
-                            if avg_speed < self._kill_speed:
+                            if max(self.worker_dl_speeds[k]) / 1024 / 1024 < self._kill_speed:
                                 self.abort_download(k)
 
             # look for an idle download thread
@@ -284,8 +284,14 @@ class FtpFileDownloader(object):
                         self._download_threads[k] = Thread(target=self._tw_ftp_download_segment,
                                                            args=(remote_path, byte_offset, blocks, k))
                         self._download_threads[k].private_thread_state = self.ACTIVE
+                        self._download_threads[k].private_start_time = time.time()
                         self._worker_dl_speeds[k] = [0] * self.SPEED_FIFO_SIZE
                         self._download_threads[k].start()
+
+            # disable pyling warning for self.on_refresh_display not callable
+            # pylint: disable=E1102
+            if self.on_refresh_display:
+                self.on_refresh_display(self, blockmap, remote_path)
 
             # process the message queue from the thread
             if not self._com_queue_out.empty():
@@ -304,6 +310,11 @@ class FtpFileDownloader(object):
                     elif msg[1]['type'] in ('aborted_high_priority', 'thread_finished_high_priority'):
                         blockmap.change_status(msg[1]['worker_id'], blockmap.AVAILABLE)
                         self._download_threads[msg[1]['worker_id']].private_thread_state = self.IDLE
+                        self._worker_dl_speeds[msg[1]['worker_id']] = [0] * self.SPEED_FIFO_SIZE
+                    elif msg[1]['type'] == 'dl_speed_update_high_priority':
+                        wid = msg[1]['worker_id']
+                        self._worker_dl_speeds[wid].insert(0, msg[1]['dl_speed'])
+                        self._worker_dl_speeds[wid] = self._worker_dl_speeds[wid][:self.SPEED_FIFO_SIZE]
                     else:
                         raise Exception('Unhandled msg type "%s"' % msg[1]['type'])
 
@@ -316,11 +327,6 @@ class FtpFileDownloader(object):
                         f.close()
                     # update the blockmap
                     blockmap.change_block_range_status(msg[1]['byte_offset'], 1, blockmap.DOWNLOADED)
-
-                    # disable pyling warning for self.on_block_downloaded not callable
-                    # pylint: disable=E1102
-                    if self.on_block_downloaded:
-                        self.on_block_downloaded(self, blockmap, remote_path)
                 else:
                     raise Exception('Unhandled msg type "%s"' % msg['type'])
 

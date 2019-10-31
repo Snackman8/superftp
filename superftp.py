@@ -188,8 +188,8 @@ def display_full(ftp_download_manager, blockmap, remote_filepath):
 # --------------------------------------------------
 #    Event Handlers
 # --------------------------------------------------
-def on_block_downloaded(display_mode, ftp_download_manager, blockmap, remote_filepath):
-    """ event handler for when a block has been downloaded, used to refresh the screen
+def on_refresh_display(display_mode, ftp_download_manager, blockmap, remote_filepath):
+    """ event handler for when the ftp handler would like to refresh the display
 
         Args:
             display_mode - mode to display on the screen, can be quiet, compact, or full
@@ -228,7 +228,7 @@ def run(args):
                                        args['blocksize'], args['kill_speed'])
 
     # download
-    ftp_downloader.on_block_downloaded = partial(on_block_downloaded, args['display_mode'])
+    ftp_downloader.on_refresh_display = partial(on_refresh_display, args['display_mode'])
     try:
         ftp_downloader.download_file(args['remote_path'], args['local_path'])
     except KeyboardInterrupt:
