@@ -108,6 +108,22 @@ class Blockmap(object):
         # return the allocated segment
         return byte_offset, blocks
 
+    def change_status(self, old_status, new_status):
+        """ change all of the blocks that have the old_status to the new_status
+
+            Args:
+                old_status - status to search for
+                new_status - status to replace with
+        """
+        if old_status not in (self.AVAILABLE, self.DOWNLOADED, self.SAVING) and old_status not in self.PENDING:
+            raise BlockmapException('status of "%s" is not a valid status' % old_status)
+        if new_status not in (self.AVAILABLE, self.DOWNLOADED, self.SAVING) and new_status not in self.PENDING:
+            raise BlockmapException('status of "%s" is not a valid status' % new_status)
+
+        blockmap = self._read_blockmap()
+        blockmap = blockmap.replace(old_status, new_status)
+        self._persist_blockmap(blockmap)
+
     def change_block_range_status(self, byte_offset, blocks, status):
         """ change the status of a block range
 
@@ -136,13 +152,29 @@ class Blockmap(object):
         """ delete the blockmap """
         os.remove(self._blockmap_path)
 
-    def get_statistics(self):
+    def get_statistics(self, dl_speed=0):
         """ return statistics about the blockmap
 
-            returns a tuple of (available blocks, number of blocks)
+            returns a tuple of (non_downloaded_blocks, number of blocks, eta)
         """
         blockmap = self._read_blockmap()
-        return (len(blockmap) - blockmap.count('*'), len(blockmap), self._blocksize)
+
+        non_downloaded_blocks = len(blockmap) - blockmap.count('*')
+
+        # calculate ETA
+        if dl_speed == 0:
+            if non_downloaded_blocks == 0:
+                eta = 'done'
+            else:
+                eta = 'infinite'
+        else:
+            eta = (non_downloaded_blocks * self._blocksize) / dl_speed
+            if eta < 120:
+                eta = '%d seconds' % eta
+            else:
+                eta = '%0.1f minutes' % (eta / 60)
+
+        return (non_downloaded_blocks, len(blockmap), eta)
 
     def has_available_blocks(self):
         # TODO: remove this function and replace code with get_statistics
