@@ -6,7 +6,7 @@ from collections import OrderedDict
 from contextlib import closing
 import os
 import time
-from ftplib import FTP
+from ftplib import FTP, error_temp
 from Queue import Queue, PriorityQueue, Empty
 from threading import Thread
 from blockmap import Blockmap
@@ -220,18 +220,56 @@ class FtpFileDownloader(object):
                     self._download_threads[k].private_thread_state = self.ABORTING
                     self._com_queue_in.put({'worker_id': k, 'type': 'kill'})
 
+#     def ftp_is_dir(self, ftp, path):
+#         try:
+#             ftp.cwd(path)
+#         except error_temp, _:
+#             return False
+#         return True
+
+    def download(self, remote_path, local_path):
+        """ download a directory or a file from the ftp server
+
+            Args:
+                remote_path - path to the remote file
+                local_path - file location to save the remote file to
+        """
+        # open an ftp connection to the server
+        ftp = FTP()
+        with closing(ftp):
+            # connect and login
+            ftp.connect(self._server_url, self._port)
+            ftp.login(self._username, self._password)
+
+            # check if this is a directory
+            listing = None
+            try:
+                ftp.cwd(remote_path)
+            except error_temp, _:
+                return False
+            else:
+                # get the listing since it is a directory
+                listing = ftp.nlst(remote_path)
+
+        # download the file if this is not a directory
+        if listing is None:
+            # this is a file so just download the file
+            return self.download_file(remote_path, local_path)
+
+        # this is a directory, create it if it does not exist
+        if not os.path.exists(local_path):
+            os.mkdir(local_path)
+
+        # loop through each item in the directory and download it
+        for f in listing:
+            self.download(os.path.join(remote_path, f), os.path.join(local_path, f))
+
     def download_file(self, remote_path, local_path):
         """ downloads a file from a remote ftp server
 
             Args:
                 remote_path - path to the remote file
                 local_path - file location to save the remote file to
-
-            Returns:
-                None
-
-            Exceptions:
-                Throws exceptions on error
         """
         # sanity check for local_path if it is a directory
         if os.path.isdir(local_path):

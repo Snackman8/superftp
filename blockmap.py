@@ -89,17 +89,16 @@ class Blockmap(object):
             Returns:
                 (starting_block, blocks)
         """
-        # TODO: break this function out into its own class so we can make smarter allocaters, i.e. if there is one
-        # large chunk left already pending, kill it and break it up into smaller chunks that exceed the minimum blocks
-        # per segment/  i.e. we need an active allocator
-
-        # read the blockmap and look for the longest contiguous chain of available blocks
+        # find the largest available free block
         blockmap = self._read_blockmap()
-        for i in range(self._max_blocks_per_segment, 0, -1):
-            blocks = i
+        for i in range(len(blockmap), 0, -1):
             start_block = blockmap.find('.' * i)
             if start_block >= 0:
+                blocks = min(i, self._max_blocks_per_segment)
                 break
+
+        # sanity check
+        assert start_block >= 0
 
         # try to allocate the segment
         byte_offset = start_block * self._blocksize

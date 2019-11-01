@@ -230,7 +230,7 @@ def run(args):
     # download
     ftp_downloader.on_refresh_display = partial(on_refresh_display, args['display_mode'])
     try:
-        ftp_downloader.download_file(args['remote_path'], args['local_path'])
+        ftp_downloader.download(args['remote_path'], args['local_path'])
     except KeyboardInterrupt:
         ftp_downloader.abort_download()
 
