@@ -86,7 +86,7 @@ def pretty_summary_line(ftp_download_manager, blockmap, remote_filepath):
      """
     # calculate some numbers
     dl_speed = ftp_download_manager.total_dl_speed
-    non_downloaded_blocks, total_blocks, eta = blockmap.get_statistics(dl_speed)
+    non_downloaded_blocks, _, total_blocks, eta = blockmap.get_statistics(dl_speed)
     percent_complete = (1.0 - (float(non_downloaded_blocks) / total_blocks)) * 100
 
     # display
@@ -218,14 +218,15 @@ def run(args):
         Args:
             args - dictionary of arguments passed in from the command line
     """
-    # clean if needed
-    if args['clean']:
-        FtpFileDownloader.clean_local_file(args['remote_path'], args['local_path'])
+#     # clean if needed
+#     if args['clean']:
+#         FtpFileDownloader.clean_local_file(args['remote_path'], args['local_path'])
 
     # create a new ftp downloader
     ftp_downloader = FtpFileDownloader(args['server'], args['username'], args['password'], args['connections'],
                                        args['port'], args['min_blocks_per_segment'], args['max_blocks_per_segment'],
-                                       args['blocksize'], args['kill_speed'])
+                                       args['blocksize'], args['kill_speed'], args['clean'],
+                                       disable_tls=args['disable_tls'])
 
     # download
     ftp_downloader.on_refresh_display = partial(on_refresh_display, args['display_mode'])
@@ -233,6 +234,9 @@ def run(args):
         ftp_downloader.download(args['remote_path'], args['local_path'])
     except KeyboardInterrupt:
         ftp_downloader.abort_download()
+    except IOError, e:
+        # sys.stderr.write(traceback.format_exc())
+        sys.stderr.write('\n' + str(e) + '\n')
 
     sys.stdout.write(ANSI_WHITE + '\n')
     sys.stdout.flush()
@@ -260,6 +264,8 @@ def main():
     parser.add_argument("--kill_speed", help=("minimum speed in MB/sec a download thread must average or else it is" +
                                               " killed"),
                         type=float, default=1.0)
+    parser.add_argument("--disable_tls", help="disable FTP TLS encryption", action="store_true")
+
     args = parser.parse_args()
     run(vars(args))
 

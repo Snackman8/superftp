@@ -132,18 +132,21 @@ class TestBlockmap(unittest.TestCase):
         self.assertFalse(blockmap.is_blockmap_complete())
 
         # it has available blocks
-        self.assertTrue(blockmap.has_available_blocks())
+        _, available_blocks, _, _ = blockmap.get_statistics()
+        self.assertTrue(available_blocks > 0)
 
         # mark first 7 blocks pending
         blockmap.change_block_range_status(0, 7, '0')
         self.assertFalse(blockmap.is_blockmap_complete())
-        self.assertTrue(blockmap.has_available_blocks())
+        _, available_blocks, _, _ = blockmap.get_statistics()
+        self.assertTrue(available_blocks > 0)
         self._verify_blockmap(blockmap, '0000000.')
 
         # mark last block pending
         blockmap.change_block_range_status(1024 * 1024 * 7, 1, '1')
         self.assertFalse(blockmap.is_blockmap_complete())
-        self.assertFalse(blockmap.has_available_blocks())
+        _, available_blocks, _, _ = blockmap.get_statistics()
+        self.assertFalse(available_blocks > 0)
         self._verify_blockmap(blockmap, '00000001')
 
         # set pending to saving
@@ -153,17 +156,20 @@ class TestBlockmap(unittest.TestCase):
         # save the 4th and 5th block
         blockmap.change_block_range_status(1024 * 1024 * 4, 2, Blockmap.DOWNLOADED)
         self.assertFalse(blockmap.is_blockmap_complete())
-        self.assertFalse(blockmap.has_available_blocks())
+        _, available_blocks, _, _ = blockmap.get_statistics()
+        self.assertFalse(available_blocks > 0)
         self._verify_blockmap(blockmap, '0000**0_')
 
         # save the rest of the blocks
         blockmap.change_block_range_status(1024 * 1024 * 0, 4, Blockmap.DOWNLOADED)
         self.assertFalse(blockmap.is_blockmap_complete())
-        self.assertFalse(blockmap.has_available_blocks())
+        _, available_blocks, _, _ = blockmap.get_statistics()
+        self.assertFalse(available_blocks > 0)
         self._verify_blockmap(blockmap, '******0_')
         blockmap.change_block_range_status(1024 * 1024 * 6, 2, Blockmap.DOWNLOADED)
         self.assertTrue(blockmap.is_blockmap_complete())
-        self.assertFalse(blockmap.has_available_blocks())
+        _, available_blocks, _, _ = blockmap.get_statistics()
+        self.assertFalse(available_blocks > 0)
         self._verify_blockmap(blockmap, '********')
 
         # delete the blockmap

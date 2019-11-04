@@ -21,28 +21,41 @@ class Blockmap(object):
 
         The blockmap is always read from disk and never kept in memory
     """
-    DOWNLOADED = '*'
-    AVAILABLE = '.'
-    SAVING = '_'
-    PENDING = '0123456789ABCDEF'
+    # --------------------------------------------------
+    # Constants
+    # --------------------------------------------------
+    DOWNLOADED = '*'                # block has been saved to the disk
+    AVAILABLE = '.'                 # block is available to be allocated to a worker thread for downloading
+    SAVING = '_'                    # data for block has been received and is in the queue waiting to be written to disk
+    PENDING = '0123456789ABCDEF'    # block has been allocated to one of the worker threads (16 possible)
 
-    def __init__(self, remote_path, local_path, file_size_func, min_blocks_per_segment, max_blocks_per_segment,
-                 blocksize):
+    # --------------------------------------------------
+    # Init
+    # --------------------------------------------------
+    def __init__(self, remote_path, local_path, file_size_func, min_blocks_per_segment=8, max_blocks_per_segment=512,
+                 blocksize=1048576):
         """ initialize the blockmap
 
             Check if a local blockmap exists in the local_path location, if it does not exist, try to contact the FTP
             server to get the filesize and then create a new blockmap
+
+            The min_blocks_per_segment, max_blocks_per_segment, and blocksize can be tuned  for optimal performance
+            given the situation.  If the time to establish a connection is long relative to download speed, the
+            min_blocks_per_segment should be increased so that less time is spent waiting for a connection instead of
+            using a previously established connection.
+
+            If the download speeds are highly variable per connection, the max_blocks_per_segment can be lowered to
+            force more connection turnover in the hopes of achieving a better download speed.
 
             Args:
                 remote_path - path on ftp server of file to download
                 local_path - local path on disk where downloaded file will be saved
                 file_size_func - a function that can be called to get the file size of the file on the FTP server, the
                                  prototype for this function is file_size_func(remote_path) returns an int
-                min_blocks_per_segment - minimum number of blocks per download segment
-                max_blocks_per_segment - maximum number of blocks per download segment
-                blocksize - size of each block in bytes
+                min_blocks_per_segment - minimum number of blocks per download segment, default is 8
+                max_blocks_per_segment - maximum number of blocks per download segment, default is 512
+                blocksize - size of each block in bytes, default is 1MB
         """
-#        self._blocksize = 1024 * 1024
         self._blocksize = blocksize
         self._remote_path = remote_path
         self._local_path = local_path
@@ -63,17 +76,31 @@ class Blockmap(object):
             s = str(blockmap)
         return s
 
+    # --------------------------------------------------
+    # Private Functions
+    # --------------------------------------------------
     def _read_blockmap(self):
-        """ load the blockmap from the local copy """
+        """ load the blockmap from the local copy on the disk
+
+            skip the first line, which is the blocksize
+
+            Returns:
+                string representation of the blockmap
+        """
+        # TODO: do something about a mismatched blocksize when reading an aborted blockmap
         with open(self._blockmap_path, 'r') as f:
             s = f.read()
             s = s[s.find('\n') + 1:]
             return s
 
-    def _persist_blockmap(self, blockmap):
-        """ save the blockmap to disk """
+    def _persist_blockmap(self, blockstr):
+        """ save the blockmap to disk
+
+            Args:
+                blockstr - string representation of the blockmap to persist
+        """
         with open(self._blockmap_path, 'w') as f:
-            f.write(str(self._blocksize) + '\n' + blockmap)
+            f.write(str(self._blocksize) + '\n' + blockstr)
 
     @property
     def blocksize(self):
@@ -89,6 +116,7 @@ class Blockmap(object):
             Returns:
                 (starting_block, blocks)
         """
+        # TODO: pass in all available worker ids so we can make a more informed allocation
         # find the largest available free block
         blockmap = self._read_blockmap()
         for i in range(len(blockmap), 0, -1):
@@ -154,11 +182,16 @@ class Blockmap(object):
     def get_statistics(self, dl_speed=0):
         """ return statistics about the blockmap
 
-            returns a tuple of (non_downloaded_blocks, number of blocks, eta)
+            returns a tuple of (non_downloaded_blocks, available blocks, number of blocks, eta)
         """
+        # read the blockmap
         blockmap = self._read_blockmap()
 
+        # calculate non saved blocks
         non_downloaded_blocks = len(blockmap) - blockmap.count('*')
+
+        # calcualte available blocks
+        available_blocks = blockmap.count('.')
 
         # calculate ETA
         if dl_speed == 0:
@@ -173,13 +206,7 @@ class Blockmap(object):
             else:
                 eta = '%0.1f minutes' % (eta / 60)
 
-        return (non_downloaded_blocks, len(blockmap), eta)
-
-    def has_available_blocks(self):
-        # TODO: remove this function and replace code with get_statistics
-        """ return true if there are any available blocks left in the blockmap """
-        blockmap = self._read_blockmap()
-        return '.' in blockmap
+        return (non_downloaded_blocks, available_blocks, len(blockmap), eta)
 
     def init_blockmap(self):
         """ initialize the blockmap if it does not exist, or clean it if it does exist """
