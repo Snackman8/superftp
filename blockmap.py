@@ -33,7 +33,7 @@ class Blockmap(object):
     # Init
     # --------------------------------------------------
     def __init__(self, remote_path, local_path, file_size_func, min_blocks_per_segment=8, max_blocks_per_segment=512,
-                 blocksize=1048576):
+                 initial_blocksize=1048576):
         """ initialize the blockmap
 
             Check if a local blockmap exists in the local_path location, if it does not exist, try to contact the FTP
@@ -54,9 +54,9 @@ class Blockmap(object):
                                  prototype for this function is file_size_func(remote_path) returns an int
                 min_blocks_per_segment - minimum number of blocks per download segment, default is 8
                 max_blocks_per_segment - maximum number of blocks per download segment, default is 512
-                blocksize - size of each block in bytes, default is 1MB
+                initial_blocksize - size of each block in bytes if creating a new blockmap, default is 1MB
         """
-        self._blocksize = blocksize
+        self._initial_blocksize = initial_blocksize
         self._remote_path = remote_path
         self._local_path = local_path
         self._file_size_func = file_size_func
@@ -68,11 +68,15 @@ class Blockmap(object):
             raise BlockmapException('Error! local path "%s" is a directory, must be a file' % local_path)
         self._blockmap_path = self._local_path + '.blockmap'
 
+    def __repr__(self):
+        """ string representation of the blockmap """
+        return self.__str__()
+
     def __str__(self):
         """ string representation of the blockmap """
         s = ''
         if self.is_blockmap_already_exists():
-            blockmap = self._read_blockmap()
+            _blocksize, blockmap = self._read_blockmap()
             s = str(blockmap)
         return s
 
@@ -87,25 +91,25 @@ class Blockmap(object):
             Returns:
                 string representation of the blockmap
         """
-        # TODO: do something about a mismatched blocksize when reading an aborted blockmap
         with open(self._blockmap_path, 'r') as f:
             s = f.read()
+            blocksize = int(s.split('\n')[0])
             s = s[s.find('\n') + 1:]
-            return s
+            return blocksize, s
 
-    def _persist_blockmap(self, blockstr):
+    def _persist_blockmap(self, blocksize, blockstr):
         """ save the blockmap to disk
 
             Args:
                 blockstr - string representation of the blockmap to persist
         """
         with open(self._blockmap_path, 'w') as f:
-            f.write(str(self._blocksize) + '\n' + blockstr)
+            f.write(str(blocksize) + '\n' + blockstr)
 
-    @property
-    def blocksize(self):
-        """ return the blocksize """
-        return self._blocksize
+#     @property
+#     def blocksize(self):
+#         """ return the blocksize """
+#         return self._blocksize
 
     def allocate_segment(self, worker_id):
         """ allocate an available segment in the blockmap to the specified worker_id
@@ -118,7 +122,7 @@ class Blockmap(object):
         """
         # TODO: pass in all available worker ids so we can make a more informed allocation
         # find the largest available free block
-        blockmap = self._read_blockmap()
+        blocksize, blockmap = self._read_blockmap()
         for i in range(len(blockmap), 0, -1):
             start_block = blockmap.find('.' * i)
             if start_block >= 0:
@@ -129,7 +133,7 @@ class Blockmap(object):
         assert start_block >= 0
 
         # try to allocate the segment
-        byte_offset = start_block * self._blocksize
+        byte_offset = start_block * blocksize
         self.change_block_range_status(byte_offset, blocks, worker_id)
 
         # return the allocated segment
@@ -147,9 +151,9 @@ class Blockmap(object):
         if new_status not in (self.AVAILABLE, self.DOWNLOADED, self.SAVING) and new_status not in self.PENDING:
             raise BlockmapException('status of "%s" is not a valid status' % new_status)
 
-        blockmap = self._read_blockmap()
+        blocksize, blockmap = self._read_blockmap()
         blockmap = blockmap.replace(old_status, new_status)
-        self._persist_blockmap(blockmap)
+        self._persist_blockmap(blocksize, blockmap)
 
     def change_block_range_status(self, byte_offset, blocks, status):
         """ change the status of a block range
@@ -159,21 +163,22 @@ class Blockmap(object):
                 blocks - number of blocks to change status of.  NOTE: This is number of blocks, not bytes!
                 status - new status
         """
+        # read the blockmap
+        blocksize, blockmap = self._read_blockmap()
+
         # make sure byte_offset is a multiple of block size
-        if byte_offset % self._blocksize != 0:
-            raise BlockmapException('byte_offset %d is not a multiple of block size %d' % (byte_offset,
-                                                                                           self._blocksize))
+        if byte_offset % blocksize != 0:
+            raise BlockmapException('byte_offset %d is not a multiple of block size %d' % (byte_offset, blocksize))
 
         # make sure status is valid
         if status not in (self.AVAILABLE, self.DOWNLOADED, self.SAVING) and status not in self.PENDING:
             raise BlockmapException('status of "%s" is not a valid status' % status)
 
         # set the status of the block
-        blockmap = self._read_blockmap()
-        starting_block = byte_offset / self._blocksize
+        starting_block = byte_offset / blocksize
         for i in range(0, blocks):
             blockmap = blockmap[:starting_block + i] + status + blockmap[starting_block + i + 1:]
-        self._persist_blockmap(blockmap)
+        self._persist_blockmap(blocksize, blockmap)
 
     def delete_blockmap(self):
         """ delete the blockmap """
@@ -182,10 +187,10 @@ class Blockmap(object):
     def get_statistics(self, dl_speed=0):
         """ return statistics about the blockmap
 
-            returns a tuple of (non_downloaded_blocks, available blocks, number of blocks, eta)
+            returns a tuple of (non_downloaded_blocks, available blocks, number of blocks, blocklsize, eta)
         """
         # read the blockmap
-        blockmap = self._read_blockmap()
+        blocksize, blockmap = self._read_blockmap()
 
         # calculate non saved blocks
         non_downloaded_blocks = len(blockmap) - blockmap.count('*')
@@ -200,13 +205,13 @@ class Blockmap(object):
             else:
                 eta = 'infinite'
         else:
-            eta = (non_downloaded_blocks * self._blocksize) / dl_speed
+            eta = (non_downloaded_blocks * blocksize) / dl_speed
             if eta < 120:
                 eta = '%d seconds' % eta
             else:
                 eta = '%0.1f minutes' % (eta / 60)
 
-        return (non_downloaded_blocks, available_blocks, len(blockmap), eta)
+        return (non_downloaded_blocks, available_blocks, len(blockmap), blocksize, eta)
 
     def init_blockmap(self):
         """ initialize the blockmap if it does not exist, or clean it if it does exist """
@@ -214,19 +219,20 @@ class Blockmap(object):
         if not os.path.exists(self._blockmap_path):
             # create a new blockmap and save it
             filesize = self._file_size_func(self._remote_path)
-            blockmap = self.AVAILABLE * int(math.ceil(filesize / float(self._blocksize)))
+            blockmap = self.AVAILABLE * int(math.ceil(filesize / float(self._initial_blocksize)))
+            blocksize = self._initial_blocksize
         else:
             # clean the blockmap
-            blockmap = self._read_blockmap()
+            blocksize, blockmap = self._read_blockmap()
             chars = list(set(blockmap))
             for c in chars:
                 if c != '*':
                     blockmap = blockmap.replace(c, self.AVAILABLE)
-        self._persist_blockmap(blockmap)
+        self._persist_blockmap(blocksize, blockmap)
 
     def is_blockmap_complete(self):
         """ returns true if the blockmap shows that the entire file has been downloaded """
-        blockmap = self._read_blockmap()
+        _blocksize, blockmap = self._read_blockmap()
         return set(blockmap) == set('*')
 
     def is_blockmap_already_exists(self):

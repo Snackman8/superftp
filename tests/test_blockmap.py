@@ -37,7 +37,8 @@ class TestBlockmap(unittest.TestCase):
 
     def _verify_blockmap(self, blockmap, expected):
         """ verify a blockmap is as expected """
-        self.assertEqual(blockmap._read_blockmap(), expected)
+        self.assertEqual(blockmap._read_blockmap()[1], expected)
+        self.assertEqual(str(blockmap), expected)
 
     def setUp(self):
         self._results_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'results_blockmap')
@@ -49,13 +50,14 @@ class TestBlockmap(unittest.TestCase):
         """ tests that blockmap allocation works as expected """
         blockmap = self._create_blockmap(1024 * 1024 * 8)
         blockmap.init_blockmap()
+        _, _, _, blocksize, _ = blockmap.get_statistics()
 
         # verify a simple segment
         blockmap.allocate_segment('0')
         self._verify_blockmap(blockmap, '000.....')
         blockmap.allocate_segment('1')
         self._verify_blockmap(blockmap, '000111..')
-        blockmap.change_block_range_status(blockmap.blocksize * 1, 3, blockmap.AVAILABLE)
+        blockmap.change_block_range_status(blocksize * 1, 3, blockmap.AVAILABLE)
         blockmap.allocate_segment('2')
         self._verify_blockmap(blockmap, '022211..')
 
@@ -132,20 +134,20 @@ class TestBlockmap(unittest.TestCase):
         self.assertFalse(blockmap.is_blockmap_complete())
 
         # it has available blocks
-        _, available_blocks, _, _ = blockmap.get_statistics()
+        _, available_blocks, _, _, _ = blockmap.get_statistics()
         self.assertTrue(available_blocks > 0)
 
         # mark first 7 blocks pending
         blockmap.change_block_range_status(0, 7, '0')
         self.assertFalse(blockmap.is_blockmap_complete())
-        _, available_blocks, _, _ = blockmap.get_statistics()
+        _, available_blocks, _, _, _ = blockmap.get_statistics()
         self.assertTrue(available_blocks > 0)
         self._verify_blockmap(blockmap, '0000000.')
 
         # mark last block pending
         blockmap.change_block_range_status(1024 * 1024 * 7, 1, '1')
         self.assertFalse(blockmap.is_blockmap_complete())
-        _, available_blocks, _, _ = blockmap.get_statistics()
+        _, available_blocks, _, _, _ = blockmap.get_statistics()
         self.assertFalse(available_blocks > 0)
         self._verify_blockmap(blockmap, '00000001')
 
@@ -156,21 +158,30 @@ class TestBlockmap(unittest.TestCase):
         # save the 4th and 5th block
         blockmap.change_block_range_status(1024 * 1024 * 4, 2, Blockmap.DOWNLOADED)
         self.assertFalse(blockmap.is_blockmap_complete())
-        _, available_blocks, _, _ = blockmap.get_statistics()
+        _, available_blocks, _, _, _ = blockmap.get_statistics()
         self.assertFalse(available_blocks > 0)
         self._verify_blockmap(blockmap, '0000**0_')
 
         # save the rest of the blocks
         blockmap.change_block_range_status(1024 * 1024 * 0, 4, Blockmap.DOWNLOADED)
         self.assertFalse(blockmap.is_blockmap_complete())
-        _, available_blocks, _, _ = blockmap.get_statistics()
+        _, available_blocks, _, _, _ = blockmap.get_statistics()
         self.assertFalse(available_blocks > 0)
         self._verify_blockmap(blockmap, '******0_')
         blockmap.change_block_range_status(1024 * 1024 * 6, 2, Blockmap.DOWNLOADED)
         self.assertTrue(blockmap.is_blockmap_complete())
-        _, available_blocks, _, _ = blockmap.get_statistics()
+        _, available_blocks, _, _, _ = blockmap.get_statistics()
         self.assertFalse(available_blocks > 0)
         self._verify_blockmap(blockmap, '********')
 
         # delete the blockmap
         blockmap.delete_blockmap()
+
+    def test_blockmap_string(self):
+        """ tests that a blockmap string representation works """
+        # create an aborted blockmap
+        blockmap = self._create_blockmap(1024 * 1024 * 8)
+        blockmap.init_blockmap()
+        blockmap.change_block_range_status(1024 * 1024 * 0, 4, Blockmap.DOWNLOADED)
+        blockmap.change_block_range_status(1024 * 1024 * 2, 4, '1')
+        self._verify_blockmap(blockmap, '**1111..')

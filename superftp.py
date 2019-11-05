@@ -86,7 +86,7 @@ def pretty_summary_line(ftp_download_manager, blockmap, remote_filepath):
      """
     # calculate some numbers
     dl_speed = ftp_download_manager.total_dl_speed
-    non_downloaded_blocks, _, total_blocks, eta = blockmap.get_statistics(dl_speed)
+    non_downloaded_blocks, _, total_blocks, _blocksize, eta = blockmap.get_statistics(dl_speed)
     percent_complete = (1.0 - (float(non_downloaded_blocks) / total_blocks)) * 100
 
     # display
