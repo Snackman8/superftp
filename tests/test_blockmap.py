@@ -9,7 +9,7 @@ import os
 import shutil
 import unittest
 
-from blockmap import Blockmap, BlockmapException
+from superftp.blockmap import Blockmap, BlockmapException
 
 
 # --------------------------------------------------
@@ -53,13 +53,17 @@ class TestBlockmap(unittest.TestCase):
         _, _, _, blocksize, _ = blockmap.get_statistics()
 
         # verify a simple segment
-        blockmap.allocate_segment('0')
+        blockmap.allocate_segments(['0'])
         self._verify_blockmap(blockmap, '000.....')
-        blockmap.allocate_segment('1')
+        blockmap.allocate_segments(['1'])
         self._verify_blockmap(blockmap, '000111..')
         blockmap.change_block_range_status(blocksize * 1, 3, blockmap.AVAILABLE)
-        blockmap.allocate_segment('2')
+        blockmap.allocate_segments(['2'])
         self._verify_blockmap(blockmap, '022211..')
+
+        blockmap.change_block_range_status(0, 8, blockmap.AVAILABLE)
+        blockmap.allocate_segments(['0', '1', '2'])
+        self._verify_blockmap(blockmap, '00011122')
 
     def test_blockmap_bad_local_dir(self):
         """ tests that blockmap raises exception if a directory is passed in as local dir """

@@ -1,10 +1,12 @@
 .coverage
 .project
 .pydevproject
+.settings
 
 *.pyc
 
 cover
-superftp_venv
+docs/_build
+docs/.index.rst.swp
 tests/results_*
 tests/test_data

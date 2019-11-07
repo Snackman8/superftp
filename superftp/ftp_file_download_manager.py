@@ -9,7 +9,8 @@ import time
 from ftplib import FTP, FTP_TLS, error_temp, error_perm
 from Queue import Queue, PriorityQueue, Empty
 from threading import Thread
-from blockmap import Blockmap
+# disable pylint for relative-import below, no way to make it work with sphinx and nosetests and comply with pylint
+from blockmap import Blockmap   # pylint: disable=W0403
 
 
 # --------------------------------------------------
@@ -34,17 +35,34 @@ class FtpFileDownloader(object):
     # --------------------------------------------------
     # Init
     # --------------------------------------------------
-    def __init__(self, server_url, username, password, concurrent_connections, port, min_blocks_per_segment,
-                 max_blocks_per_segment, initial_blocksize, kill_speed, clean, disable_tls):
+    def __init__(self, server_url, username, password, port=21, concurrent_connections=4,
+                 min_blocks_per_segment=8, max_blocks_per_segment=128, initial_blocksize=1048576,
+                 kill_speed=0, clean=False, disable_tls=False):
         """
+            Initialize the class.  The defaults are reasonable for a broadband connection in the 2 to 20 mbps range.
+
+            Fine tuning can be achieved by modifying the min_blocks_per_segment and max_blocks_per_segment.  The higher
+            the latency of establishing a download connection, the larger the min_blocks_per_segment should be.
+
+            If the download is prone to stalling or bad routing resulting in slow downloads, the kill_speed can be set
+            to a value like 1.0 where if the average dowload connection speed drops below 1.0 MB/sec, the connection
+            will be killed and reestablished in the hopes that a faster packet route will be used in the new
+            connection.
+
             Args:
                 server_url - url to the ftp server
                 username - username to login to ftp server with
                 password - password to login to ftp server with
-                concurrent_connections - number of concurrent download connections
+                port - port number to use for the ftp connection to the server
+                concurrent_connections - number of concurrent download connections to use
+                min_blocks_per_segment - minimum number of blocks that should be allocated to a download connection
+                max_blocks_per_segment - maximum number of blocks that should be allocated to a download connection
+                initial_blocksize - for a new blockmap, size of blocks in bytes
+                kill_speed - if average download speed of a download connection falls below the kill_speed in MB/sec
+                             kill the connection and try to create a new download connection
+                clean - erase files on disk if they already exist before redownloading them
+                disable_tls - disable TLS encryption when connecting and downloading from the FTP server
         """
-        # TODO: run somethign to generate reference docs
-        # TODO: clean this up, assign reasonable defaults and document the parameters
         # init
         self._server_url = server_url
         self._username = username
@@ -123,19 +141,24 @@ class FtpFileDownloader(object):
                         if max(self.worker_dl_speeds[k]) / 1024 / 1024 < self._kill_speed:
                             self.abort_download(k)
 
-        # look for an idle download thread
+        # gather all of the idle download threads
+        idle_download_workers = []
         for k in self._download_threads.keys():
             if self._download_threads[k].private_thread_state == self.IDLE:
-                _, available_blocks, _, blocksize, _ = blockmap.get_statistics()
-                if available_blocks > 0:
-                    # allocate new blocks
-                    byte_offset, blocks = blockmap.allocate_segment(k)
-                    self._download_threads[k] = Thread(target=self._tw_ftp_download_segment,
-                                                       args=(remote_path, byte_offset, blocks, blocksize, k))
-                    self._download_threads[k].private_thread_state = self.ACTIVE
-                    self._download_threads[k].private_start_time = time.time()
-                    self._download_threads[k].private_dl_speed_fifo = [0] * self.SPEED_FIFO_SIZE
-                    self._download_threads[k].start()
+                idle_download_workers.append(k)
+
+        # allocate segments to each idle worker
+        _, available_blocks, _, blocksize, _ = blockmap.get_statistics()
+        if available_blocks > 0:
+            segments = blockmap.allocate_segments(idle_download_workers)
+            for k in segments:
+                self._download_threads[k] = Thread(target=self._tw_ftp_download_segment,
+                                                   args=(remote_path, segments[k]['byte_offset'], segments[k]['blocks'],
+                                                         blocksize, k))
+                self._download_threads[k].private_thread_state = self.ACTIVE
+                self._download_threads[k].private_start_time = time.time()
+                self._download_threads[k].private_dl_speed_fifo = [0] * self.SPEED_FIFO_SIZE
+                self._download_threads[k].start()
 
     def _process_high_priority_messages(self, blockmap):
         # process all of the available high priority messages
@@ -310,7 +333,7 @@ class FtpFileDownloader(object):
     @property
     def worker_dl_speeds(self):
         """ return an estimate of the current worker download speeds """
-        retval = {}
+        retval = OrderedDict()
         for k in self._download_threads.keys():
             retval[k] = self._download_threads[k].private_dl_speed_fifo
         return retval

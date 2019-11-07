@@ -106,38 +106,45 @@ class Blockmap(object):
         with open(self._blockmap_path, 'w') as f:
             f.write(str(blocksize) + '\n' + blockstr)
 
-#     @property
-#     def blocksize(self):
-#         """ return the blocksize """
-#         return self._blocksize
-
-    def allocate_segment(self, worker_id):
+    def allocate_segments(self, worker_ids):
         """ allocate an available segment in the blockmap to the specified worker_id
 
             Args:
-                worker_id - a worker id to allocate the segment to
+                worker_id - list of worker ids to allocate the segment to
 
             Returns:
                 (starting_block, blocks)
         """
-        # TODO: pass in all available worker ids so we can make a more informed allocation
+        # exit if no worker_ids
+        if not worker_ids:
+            return {}
+
         # find the largest available free block
+        retval = {}
         blocksize, blockmap = self._read_blockmap()
-        for i in range(len(blockmap), 0, -1):
-            start_block = blockmap.find('.' * i)
+        for segment_size in range(len(blockmap), 0, -1):
+            start_block = blockmap.find('.' * segment_size)
             if start_block >= 0:
-                blocks = min(i, self._max_blocks_per_segment)
+                # calculate the optimal_segment_size
+                optimal_segment_size = int(math.ceil(float(segment_size) / len(worker_ids)))
+                optimal_segment_size = min(optimal_segment_size, self._max_blocks_per_segment)
+                optimal_segment_size = max(optimal_segment_size, self._min_blocks_per_segment)
+
+                # allocate to the worker_ids
+                x = start_block
+                for k in worker_ids:
+                    blocks = min(segment_size, optimal_segment_size)
+                    retval[k] = {'byte_offset': x * blocksize, 'blocks': blocks}
+                    x = x + blocks
+                    segment_size = segment_size - blocks
+                    assert segment_size >= 0
+                    self.change_block_range_status(retval[k]['byte_offset'], retval[k]['blocks'], k)
+                    if segment_size == 0:
+                        break
                 break
 
-        # sanity check
-        assert start_block >= 0
-
-        # try to allocate the segment
-        byte_offset = start_block * blocksize
-        self.change_block_range_status(byte_offset, blocks, worker_id)
-
-        # return the allocated segment
-        return byte_offset, blocks
+        # return the results
+        return retval
 
     def change_status(self, old_status, new_status):
         """ change all of the blocks that have the old_status to the new_status

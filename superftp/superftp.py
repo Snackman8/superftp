@@ -7,7 +7,8 @@ import argparse
 import os
 import sys
 from functools import partial
-from ftp_file_download_manager import FtpFileDownloader
+# disable pylint for relative-import below, no way to make it work with sphinx and nosetests and comply with pylint
+from ftp_file_download_manager import FtpFileDownloader     # pylint: disable=W0403
 
 
 # --------------------------------------------------
@@ -27,7 +28,7 @@ ANSI_MOVE = '\033[%d;%dH'
 # --------------------------------------------------
 #    Functions
 # --------------------------------------------------
-def pretty_blockmap(blockmap, rows, cols):
+def _pretty_blockmap(blockmap, rows, cols):
     """ create a string which contains a pretty ANSI representation of the blockmap fitted to a window with the
         specified size of rols by cols
 
@@ -73,7 +74,7 @@ def pretty_blockmap(blockmap, rows, cols):
     return s
 
 
-def pretty_summary_line(ftp_download_manager, blockmap, remote_filepath):
+def _pretty_summary_line(ftp_download_manager, blockmap, remote_filepath):
     """ construct a single line (no ansi) representation of the download state
 
         Args:
@@ -97,7 +98,7 @@ def pretty_summary_line(ftp_download_manager, blockmap, remote_filepath):
     return s
 
 
-def pretty_dl_speed_fifo(ftp_download_manager, kill_speed):
+def _pretty_dl_speed_fifo(ftp_download_manager, kill_speed):
     """ construct a pretty ansi representation of the download fifo speeds
 
         Args:
@@ -133,7 +134,7 @@ def pretty_dl_speed_fifo(ftp_download_manager, kill_speed):
     return s
 
 
-def display_compact(ftp_download_manager, blockmap, remote_filepath):
+def _display_compact(ftp_download_manager, blockmap, remote_filepath):
     """ writes a one line compact status display of the current download to the screen.  Does not use ANSI
         characters
 
@@ -142,12 +143,12 @@ def display_compact(ftp_download_manager, blockmap, remote_filepath):
             blockmap - blockmap instance of the download to show summary for
             remote_file_path - the file path on the remote server of the file being downloaded
     """
-    s = pretty_summary_line(ftp_download_manager, blockmap, remote_filepath)
+    s = _pretty_summary_line(ftp_download_manager, blockmap, remote_filepath)
     sys.stdout.write('\r%-79s' % s)
     sys.stdout.flush()
 
 
-def display_full(ftp_download_manager, blockmap, remote_filepath):
+def _display_full(ftp_download_manager, blockmap, remote_filepath):
     """ writes a full screen detailed update of the current download to the screen.  Uses ANSI characters for color
         and cursor positioning
 
@@ -163,19 +164,19 @@ def display_full(ftp_download_manager, blockmap, remote_filepath):
     # show the pretty summary line
     s = ''
     s = s + ANSI_MOVE % (y, 0) + ANSI_WHITE
-    s = s + pretty_summary_line(ftp_download_manager, blockmap, remote_filepath) + ANSI_CLEAR_REST_OF_LINE
+    s = s + _pretty_summary_line(ftp_download_manager, blockmap, remote_filepath) + ANSI_CLEAR_REST_OF_LINE
     s = s + ANSI_MOVE % (y + 1, 0) + ANSI_CLEAR_REST_OF_LINE
 
     # show the pretty download speed fifos
     y = 3
     s = s + ANSI_MOVE % (y, 0)
-    s = s + pretty_dl_speed_fifo(ftp_download_manager, ftp_download_manager.kill_speed)
+    s = s + _pretty_dl_speed_fifo(ftp_download_manager, ftp_download_manager.kill_speed)
     s = s + ANSI_MOVE % (y + ftp_download_manager.SPEED_FIFO_SIZE, 0) + ANSI_CLEAR_REST_OF_LINE
 
     # show the blockmap
     y = y + ftp_download_manager.SPEED_FIFO_SIZE + 1
     s = s + ANSI_MOVE % (y, 0)
-    s = s + pretty_blockmap(blockmap, rows - y - 1, columns)
+    s = s + _pretty_blockmap(blockmap, rows - y - 1, columns)
 
     # clear the rest of the screen
     s = s + ANSI_CLEAR_REST_OF_SCREEN
@@ -188,7 +189,7 @@ def display_full(ftp_download_manager, blockmap, remote_filepath):
 # --------------------------------------------------
 #    Event Handlers
 # --------------------------------------------------
-def on_refresh_display(display_mode, ftp_download_manager, blockmap, remote_filepath):
+def _on_refresh_display(display_mode, ftp_download_manager, blockmap, remote_filepath):
     """ event handler for when the ftp handler would like to refresh the display
 
         Args:
@@ -202,9 +203,9 @@ def on_refresh_display(display_mode, ftp_download_manager, blockmap, remote_file
         # no display when quiet
         return
     elif display_mode == 'compact':
-        display_compact(ftp_download_manager, blockmap, remote_filepath)
+        _display_compact(ftp_download_manager, blockmap, remote_filepath)
     elif display_mode == 'full':
-        display_full(ftp_download_manager, blockmap, remote_filepath)
+        _display_full(ftp_download_manager, blockmap, remote_filepath)
     else:
         raise Exception('Unknown display mode of %s' % display_mode)
 
@@ -212,24 +213,24 @@ def on_refresh_display(display_mode, ftp_download_manager, blockmap, remote_file
 # --------------------------------------------------
 #    Main
 # --------------------------------------------------
-def run(args):
+def _run(args):
     """ run function of the script
 
         Args:
             args - dictionary of arguments passed in from the command line
     """
-#     # clean if needed
-#     if args['clean']:
-#         FtpFileDownloader.clean_local_file(args['remote_path'], args['local_path'])
-
     # create a new ftp downloader
-    ftp_downloader = FtpFileDownloader(args['server'], args['username'], args['password'], args['connections'],
-                                       args['port'], args['min_blocks_per_segment'], args['max_blocks_per_segment'],
-                                       args['blocksize'], args['kill_speed'], args['clean'],
+    ftp_downloader = FtpFileDownloader(server_url=args['server'], username=args['username'], password=args['password'],
+                                       port=args['port'], concurrent_connections=args['connections'],
+                                       min_blocks_per_segment=args['min_blocks_per_segment'],
+                                       max_blocks_per_segment=args['max_blocks_per_segment'],
+                                       initial_blocksize=args['blocksize'],
+                                       kill_speed=args['kill_speed'],
+                                       clean=args['clean'],
                                        disable_tls=args['disable_tls'])
 
     # download
-    ftp_downloader.on_refresh_display = partial(on_refresh_display, args['display_mode'])
+    ftp_downloader.on_refresh_display = partial(_on_refresh_display, args['display_mode'])
     try:
         ftp_downloader.download(args['remote_path'], args['local_path'])
     except KeyboardInterrupt:
@@ -267,7 +268,7 @@ def main():
     parser.add_argument("--disable_tls", help="disable FTP TLS encryption", action="store_true")
 
     args = parser.parse_args()
-    run(vars(args))
+    _run(vars(args))
 
 
 if __name__ == '__main__':

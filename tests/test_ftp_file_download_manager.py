@@ -15,7 +15,7 @@ from pyftpdlib.authorizers import DummyAuthorizer
 from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import MultiprocessFTPServer
 
-from ftp_file_download_manager import FtpFileDownloader
+from superftp.ftp_file_download_manager import FtpFileDownloader
 
 
 # --------------------------------------------------
@@ -110,7 +110,9 @@ class TestFTPFileDownloadManager(unittest.TestCase):
 
     def test_file_download(self):
         """ test the download of a small simple file using download_file """
-        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2, 1048576, 0, True, True)
+        ftp = FtpFileDownloader(server_url='localhost', username='user', password='12345', port=2121,
+                                concurrent_connections=4, min_blocks_per_segment=1, max_blocks_per_segment=2,
+                                initial_blocksize=1048576, kill_speed=0, clean=True, disable_tls=True)
         ftp.download_file('testfile.txt', self._results_dir)
         self.assertTrue(filecmp.cmp(os.path.join(self._test_dir, 'testfile.txt'),
                                     os.path.join(self._results_dir, 'testfile.txt'), shallow=False))
@@ -123,7 +125,9 @@ class TestFTPFileDownloadManager(unittest.TestCase):
             shutil.rmtree(dir_path)
 
         # download the directory
-        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2, 1048576, 0, True, True)
+        ftp = FtpFileDownloader(server_url='localhost', username='user', password='12345', port=2121,
+                                concurrent_connections=4, min_blocks_per_segment=1, max_blocks_per_segment=2,
+                                initial_blocksize=1048576, kill_speed=0, clean=True, disable_tls=True)
         ftp.download('/', dir_path)
 
         # verify the sub directory was actually created
@@ -140,7 +144,9 @@ class TestFTPFileDownloadManager(unittest.TestCase):
         """ test the download of a small simple file using download"""
         if os.path.exists(os.path.join(self._results_dir, 'testfile.txt')):
             os.remove(os.path.join(self._results_dir, 'testfile.txt'))
-        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2, 1048576, 0, False, True)
+        ftp = FtpFileDownloader(server_url='localhost', username='user', password='12345', port=2121,
+                                concurrent_connections=4, min_blocks_per_segment=1, max_blocks_per_segment=2,
+                                initial_blocksize=1048576, kill_speed=0, clean=False, disable_tls=True)
         ftp.download('testfile.txt', self._results_dir)
         self.assertTrue(filecmp.cmp(os.path.join(self._test_dir, 'testfile.txt'),
                                     os.path.join(self._results_dir, 'testfile.txt'), shallow=False))
@@ -149,7 +155,9 @@ class TestFTPFileDownloadManager(unittest.TestCase):
         """ test correct response if server does not support tls """
         if os.path.exists(os.path.join(self._results_dir, 'testfile.txt')):
             os.remove(os.path.join(self._results_dir, 'testfile.txt'))
-        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2, 1048576, 0, False, False)
+        ftp = FtpFileDownloader(server_url='localhost', username='user', password='12345', port=2121,
+                                concurrent_connections=4, min_blocks_per_segment=1, max_blocks_per_segment=2,
+                                initial_blocksize=1048576, kill_speed=0, clean=False, disable_tls=False)
         try:
             ftp.download('testfile.txt', self._results_dir)
         except ftplib.error_perm, e:
@@ -183,7 +191,9 @@ class TestFTPFileDownloadManager(unittest.TestCase):
     def test_kill_speed(self):
         """ test that kill_speed does not crash """
         # abort the download after 2 blocks have been downloaded
-        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2, 1048576, 0.1, True, True)
+        ftp = FtpFileDownloader(server_url='localhost', username='user', password='12345', port=2121,
+                                concurrent_connections=4, min_blocks_per_segment=1, max_blocks_per_segment=2,
+                                initial_blocksize=1048576, kill_speed=0, clean=True, disable_tls=True)
         ftp.download('testfile.txt', self._results_dir)
         self.assertTrue(filecmp.cmp(os.path.join(self._test_dir, 'testfile.txt'),
                                     os.path.join(self._results_dir, 'testfile.txt'), shallow=False))
@@ -201,14 +211,18 @@ class TestFTPFileDownloadManager(unittest.TestCase):
                 ftp_download_manager.abort_download()
 
         # abort the download after 2 blocks have been downloaded
-        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2, 1048576, 0, True, True)
+        ftp = FtpFileDownloader(server_url='localhost', username='user', password='12345', port=2121,
+                                concurrent_connections=4, min_blocks_per_segment=1, max_blocks_per_segment=2,
+                                initial_blocksize=1048576, kill_speed=0, clean=True, disable_tls=True)
         ftp.on_refresh_display = on_refresh_display
         ftp.download('testfile.txt', self._results_dir)
         self.assertFalse(filecmp.cmp(os.path.join(self._test_dir, 'testfile.txt'),
                                      os.path.join(self._results_dir, 'testfile.txt'), shallow=False))
 
         # resume the download
-        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2, 1048576, 0, False, True)
+        ftp = FtpFileDownloader(server_url='localhost', username='user', password='12345', port=2121,
+                                concurrent_connections=4, min_blocks_per_segment=1, max_blocks_per_segment=2,
+                                initial_blocksize=1048576, kill_speed=0, clean=False, disable_tls=True)
         ftp.download('testfile.txt', self._results_dir)
         self.assertTrue(filecmp.cmp(os.path.join(self._test_dir, 'testfile.txt'),
                                     os.path.join(self._results_dir, 'testfile.txt'), shallow=False))
@@ -226,14 +240,18 @@ class TestFTPFileDownloadManager(unittest.TestCase):
                 ftp_download_manager.abort_download()
 
         # abort the download after 2 blocks have been downloaded with a blocksize of 65536
-        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2, 65536, 0, True, True)
+        ftp = FtpFileDownloader(server_url='localhost', username='user', password='12345', port=2121,
+                                concurrent_connections=4, min_blocks_per_segment=1, max_blocks_per_segment=2,
+                                initial_blocksize=65536, kill_speed=0, clean=True, disable_tls=True)
         ftp.on_refresh_display = on_refresh_display
         ftp.download('testfile.txt', self._results_dir)
         self.assertFalse(filecmp.cmp(os.path.join(self._test_dir, 'testfile.txt'),
                                      os.path.join(self._results_dir, 'testfile.txt'), shallow=False))
 
         # resume the download
-        ftp = FtpFileDownloader('localhost', 'user', '12345', 4, 2121, 1, 2, 1048576, 0, False, True)
+        ftp = FtpFileDownloader(server_url='localhost', username='user', password='12345', port=2121,
+                                concurrent_connections=4, min_blocks_per_segment=1, max_blocks_per_segment=2,
+                                initial_blocksize=1048576, kill_speed=0, clean=False, disable_tls=True)
         ftp.download('testfile.txt', self._results_dir)
         self.assertTrue(filecmp.cmp(os.path.join(self._test_dir, 'testfile.txt'),
                                     os.path.join(self._results_dir, 'testfile.txt'), shallow=False))
