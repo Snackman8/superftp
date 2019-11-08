@@ -10,3 +10,6 @@ docs/_build
 docs/.index.rst.swp
 tests/results_*
 tests/test_data
+
+dist
+superftp.egg-info
