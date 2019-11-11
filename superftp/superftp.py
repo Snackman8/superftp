@@ -4,6 +4,7 @@
 #    Imports
 # --------------------------------------------------
 import argparse
+import ftplib
 import os
 import sys
 from functools import partial
@@ -158,7 +159,10 @@ def _display_full(ftp_download_manager, blockmap, remote_filepath):
             remote_file_path - the file path on the remote server of the file being downloaded
     """
     # get the window size
-    rows, columns = [int(x) for x in os.popen('stty size', 'r').read().split()]
+    try:
+        rows, columns = [int(x) for x in os.popen('stty size', 'r').read().split()]
+    except ValueError, _:
+        rows, columns = (24, 80)
     y = 1
 
     # show the pretty summary line
@@ -235,8 +239,9 @@ def _run(args):
         ftp_downloader.download(args['remote_path'], args['local_path'])
     except KeyboardInterrupt:
         ftp_downloader.abort_download()
+    except ftplib.error_perm, e:
+        sys.stderr.write('\n' + 'FTP ERROR: ' + str(e) + '\n')
     except IOError, e:
-        # sys.stderr.write(traceback.format_exc())
         sys.stderr.write('\n' + str(e) + '\n')
 
     sys.stdout.write(ANSI_WHITE + '\n')

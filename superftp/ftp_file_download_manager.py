@@ -399,7 +399,7 @@ class FtpFileDownloader(object):
             listing = None
             try:
                 ftp.cwd(remote_path)
-                listing = ftp.nlst(remote_path)
+                listing = ftp.nlst(remote_path.replace('[', r'\['))
             except (error_temp, error_perm), _:
                 pass
 
