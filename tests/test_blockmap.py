@@ -5,11 +5,10 @@
 # --------------------------------------------------
 #    Imports
 # --------------------------------------------------
-import os
-import shutil
 import unittest
 
 from superftp.blockmap import Blockmap, BlockmapException
+from test_utils import create_blockmap, create_results_dir
 
 
 # --------------------------------------------------
@@ -17,38 +16,17 @@ from superftp.blockmap import Blockmap, BlockmapException
 # --------------------------------------------------
 class TestBlockmap(unittest.TestCase):
     """ tests for blockmap class """
-
-    def _create_blockmap(self, filesize, delete_if_exists=True):
-        """ create a blockmap with the specified filesize
-
-            Args:
-                filesize - size of the file the blockmap represents
-        """
-        def filesize_func(_):
-            """ return a fake filesize """
-            return filesize
-
-        # create the blockmap, delete it if it exists already
-        blockmap = Blockmap('testfile.txt', os.path.join(self._results_dir, 'test.txt'), filesize_func, 1, 3, 1048576)
-        if delete_if_exists:
-            if blockmap.is_blockmap_already_exists():
-                blockmap.delete_blockmap()
-        return blockmap
-
     def _verify_blockmap(self, blockmap, expected):
         """ verify a blockmap is as expected """
         self.assertEqual(blockmap._read_blockmap()[1], expected)
         self.assertEqual(str(blockmap), expected)
 
     def setUp(self):
-        self._results_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'results_blockmap')
-        if os.path.exists(self._results_dir):
-            shutil.rmtree(self._results_dir)
-        os.mkdir(self._results_dir)
+        self._results_dir = create_results_dir('results_blockmap')
 
     def test_allocate(self):
         """ tests that blockmap allocation works as expected """
-        blockmap = self._create_blockmap(1024 * 1024 * 8)
+        blockmap = create_blockmap(self._results_dir, 1024 * 1024 * 8)
         blockmap.init_blockmap()
         _, _, _, blocksize, _ = blockmap.get_statistics()
 
@@ -76,7 +54,7 @@ class TestBlockmap(unittest.TestCase):
 
     def test_blockmap_bad_offset(self):
         """ tests that blockmap raises exception if a directory is passed in as local dir """
-        blockmap = self._create_blockmap(1024 * 1024 * 8)
+        blockmap = create_blockmap(self._results_dir, 1024 * 1024 * 8)
         blockmap.init_blockmap()
         try:
             blockmap.change_block_range_status(1024 * 1024 * 0.1, 4, '0')
@@ -87,7 +65,7 @@ class TestBlockmap(unittest.TestCase):
 
     def test_blockmap_bad_status(self):
         """ tests that blockmap raises exception if a directory is passed in as local dir """
-        blockmap = self._create_blockmap(1024 * 1024 * 8)
+        blockmap = create_blockmap(self._results_dir, 1024 * 1024 * 8)
         blockmap.init_blockmap()
         try:
             blockmap.change_block_range_status(1024 * 1024 * 0, 4, 'Z')
@@ -99,14 +77,14 @@ class TestBlockmap(unittest.TestCase):
     def test_blockmap_cleaning(self):
         """ tests that a blockmap cleans up aborted operations correctly """
         # create an aborted blockmap
-        blockmap = self._create_blockmap(1024 * 1024 * 8)
+        blockmap = create_blockmap(self._results_dir, 1024 * 1024 * 8)
         blockmap.init_blockmap()
         blockmap.change_block_range_status(1024 * 1024 * 0, 4, Blockmap.DOWNLOADED)
         blockmap.change_block_range_status(1024 * 1024 * 2, 4, '1')
         self._verify_blockmap(blockmap, '**1111..')
 
         # load the blockmap in again to check it is cleaned
-        blockmap = self._create_blockmap(1024 * 1024 * 8, delete_if_exists=False)
+        blockmap = create_blockmap(self._results_dir, 1024 * 1024 * 8, delete_if_exists=False)
         blockmap.init_blockmap()
         self._verify_blockmap(blockmap, '**......')
 
@@ -115,7 +93,7 @@ class TestBlockmap(unittest.TestCase):
         # test for a multiple of blocksize, and a non-multiple of block size
         for x in [(1024 * 1024 * 8, '........'),
                   (1024 * 1024 * 8.1, '.........')]:
-            blockmap = self._create_blockmap(x[0])
+            blockmap = create_blockmap(self._results_dir, x[0])
             blockmap.init_blockmap()
 
             # check that the blockmap looks as we expect
@@ -131,7 +109,7 @@ class TestBlockmap(unittest.TestCase):
     def test_blockmap_saving_complete(self):
         """ tests that blockmap is_blockmap_complete works """
         # create a new blockmap
-        blockmap = self._create_blockmap(1024 * 1024 * 8)
+        blockmap = create_blockmap(self._results_dir, 1024 * 1024 * 8)
         blockmap.init_blockmap()
 
         # it is not complete
@@ -184,7 +162,7 @@ class TestBlockmap(unittest.TestCase):
     def test_blockmap_string(self):
         """ tests that a blockmap string representation works """
         # create an aborted blockmap
-        blockmap = self._create_blockmap(1024 * 1024 * 8)
+        blockmap = create_blockmap(self._results_dir, 1024 * 1024 * 8)
         blockmap.init_blockmap()
         blockmap.change_block_range_status(1024 * 1024 * 0, 4, Blockmap.DOWNLOADED)
         blockmap.change_block_range_status(1024 * 1024 * 2, 4, '1')

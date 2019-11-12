@@ -4,18 +4,12 @@
 # --------------------------------------------------
 import filecmp
 import os
-import Queue
 import shutil
-import time
-from threading import Thread
 import ftplib
 import unittest
 
-from pyftpdlib.authorizers import DummyAuthorizer
-from pyftpdlib.handlers import FTPHandler
-from pyftpdlib.servers import MultiprocessFTPServer
-
 from superftp.ftp_file_download_manager import FtpFileDownloader
+from test_utils import setup_ftp_server, teardown_ftp_server
 
 
 # --------------------------------------------------
@@ -27,80 +21,18 @@ class TestFTPFileDownloadManager(unittest.TestCase):
         super(TestFTPFileDownloadManager, self).__init__(*args, **kwargs)
         self._ftp_thread = None
         self._blocks_downloaded = 0
-
-    def _start_ftp_server(self, ftp_root_dir, port=2121):
-        """ start the test ftp server
-
-            Args:
-                ftp_root_dir - root directory for the ftp server
-                port - port number for the ftp server
-
-            Returns:
-                thread running the ftp server
-        """
-        def tw_ftp_server():
-            """ thread worker for the ftp server """
-            authorizer = DummyAuthorizer()
-            authorizer.add_user('user', '12345', ftp_root_dir, perm='elradfmwMT')
-
-            # Instantiate FTP handler class
-            handler = FTPHandler
-            handler.authorizer = authorizer
-            server = MultiprocessFTPServer(('', port), handler)
-            server.max_cons = 256
-            server.max_cons_per_ip = 10
-
-            # start ftp server
-            while self._com_queue.empty():
-                server.serve_forever(timeout=0.1, blocking=False)
-            self._com_queue.get()
-            server.close_all()
-            time.sleep(1)
-
-        # launch a thread with the ftp server
-        t = Thread(target=tw_ftp_server, args=())
-        t.start()
-        return t
-
-    def _stop_ftp_server(self):
-        """ stop the test ftp server """
-        self._com_queue.put('STOP')
+        self._com_queue = None
 
     def setUp(self):
         """ start the test ftp server """
-        # tearDown in case we had a previous failed test
-        self.tearDown()
-
-        # generate the test data
-        self._com_queue = Queue.Queue()
-        self._results_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)),
-                                         'results_ftp_file_download_manager')
-        if not os.path.exists(self._results_dir):
-            os.mkdir(self._results_dir)
-        self._test_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'test_data')
-        shutil.rmtree(self._test_dir)
-        os.mkdir(self._test_dir)
-        filepath = os.path.join(self._test_dir, 'testfile.txt')
-        with open(filepath, 'w') as f:
-            for i in range(0, 20):
-                f.write(str(i) + '.' * (1024 * 1024) + '\n')
-        os.mkdir(os.path.join(self._test_dir, 'a'))
-        filepath = os.path.join(os.path.join(self._test_dir, 'a'), 'testfile2.txt')
-        with open(filepath, 'w') as f:
-            for i in range(0, 2):
-                f.write(str(i) + '.' * (1024 * 1024) + '\n')
-
-        self._ftp_thread = self._start_ftp_server(self._test_dir, 2121)
-
-        # give the ftp server some time to start up
-        time.sleep(1)
+        # start the ftp server
+        (self._com_queue, self._results_dir,
+         self._test_dir, self._ftp_thread) = setup_ftp_server(self._ftp_thread, self._com_queue,
+                                                              'results_ftp_file_download_manager')
 
     def tearDown(self):
         """ stop the ftp server """
-        if self._ftp_thread:
-            self._stop_ftp_server()
-            while self._ftp_thread.is_alive():
-                time.sleep(0.01)
+        teardown_ftp_server(self._ftp_thread, self._com_queue)
         self._ftp_thread = None
 
     @unittest.skip("not implemented")

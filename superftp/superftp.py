@@ -47,6 +47,7 @@ def _pretty_blockmap(blockmap, rows, cols):
 
     # loop across the rows
     s = ''
+    last_ansi_color = None
     for y in range(0, rows):
         # loop across the cols
         for x in range(0, cols):
@@ -59,11 +60,18 @@ def _pretty_blockmap(blockmap, rows, cols):
 
             # map to a color
             if c in blockmap.PENDING + blockmap.SAVING:
-                s = s + ANSI_YELLOW
+                if last_ansi_color != ANSI_YELLOW:
+                    s = s + ANSI_YELLOW
+                    last_ansi_color = ANSI_YELLOW
+
             elif c in blockmap.DOWNLOADED:
-                s = s + ANSI_GREEN
+                if last_ansi_color != ANSI_GREEN:
+                    s = s + ANSI_GREEN
+                    last_ansi_color = ANSI_GREEN
             else:
-                s = s + ANSI_WHITE
+                if last_ansi_color != ANSI_WHITE:
+                    s = s + ANSI_WHITE
+                    last_ansi_color = ANSI_WHITE
 
             # add the character
             s = s + c
@@ -111,19 +119,26 @@ def _pretty_dl_speed_fifo(ftp_download_manager, kill_speed):
     """
     # loop over each depth
     s = ''
+    last_ansi_color = None
     for y in range(0, ftp_download_manager.SPEED_FIFO_SIZE):
         # loop across the workers
         for k in ftp_download_manager.worker_dl_speeds.keys():
             # get the speed, we want to show the oldest speed at the top so we traverse in reverse order
-            speed = ftp_download_manager.worker_dl_speeds[k][::-1][y] / 1024 / 1024
+            speed = float(ftp_download_manager.worker_dl_speeds[k][::-1][y]) / 1024 / 1024
 
             # emit the color
             if speed == 0:
-                s = s + ANSI_WHITE
+                if last_ansi_color != ANSI_WHITE:
+                    s = s + ANSI_WHITE
+                    last_ansi_color = ANSI_WHITE
             elif speed < kill_speed:
-                s = s + ANSI_RED
+                if last_ansi_color != ANSI_RED:
+                    s = s + ANSI_RED
+                    last_ansi_color = ANSI_RED
             else:
-                s = s + ANSI_GREEN
+                if last_ansi_color != ANSI_GREEN:
+                    s = s + ANSI_GREEN
+                    last_ansi_color = ANSI_GREEN
 
             # emit the speed
             s = s + '[%0.3f]' % speed
@@ -149,7 +164,7 @@ def _display_compact(ftp_download_manager, blockmap, remote_filepath):
     sys.stdout.flush()
 
 
-def _display_full(ftp_download_manager, blockmap, remote_filepath):
+def _display_full(ftp_download_manager, blockmap, remote_filepath, force_window_size=None):
     """ writes a full screen detailed update of the current download to the screen.  Uses ANSI characters for color
         and cursor positioning
 
@@ -159,10 +174,13 @@ def _display_full(ftp_download_manager, blockmap, remote_filepath):
             remote_file_path - the file path on the remote server of the file being downloaded
     """
     # get the window size
-    try:
-        rows, columns = [int(x) for x in os.popen('stty size', 'r').read().split()]
-    except ValueError, _:
-        rows, columns = (24, 80)
+    if force_window_size:
+        rows, columns = force_window_size
+    else:
+        try:
+            rows, columns = [int(x) for x in os.popen('stty size', 'r').read().split()]
+        except ValueError, _:
+            rows, columns = (24, 80)
     y = 1
 
     # show the pretty summary line
@@ -279,5 +297,5 @@ def main():
     _run(vars(args))
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # pragma: no cover
     main()
