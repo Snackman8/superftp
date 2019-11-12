@@ -37,7 +37,7 @@ class FtpFileDownloader(object):
     # --------------------------------------------------
     def __init__(self, server_url, username, password, port=21, concurrent_connections=4,
                  min_blocks_per_segment=8, max_blocks_per_segment=128, initial_blocksize=1048576,
-                 kill_speed=0, clean=False, disable_tls=False):
+                 kill_speed=0, clean=False, enable_tls=False):
         """
             Initialize the class.  The defaults are reasonable for a broadband connection in the 2 to 20 mbps range.
 
@@ -61,7 +61,7 @@ class FtpFileDownloader(object):
                 kill_speed - if average download speed of a download connection falls below the kill_speed in MB/sec
                              kill the connection and try to create a new download connection
                 clean - erase files on disk if they already exist before redownloading them
-                disable_tls - disable TLS encryption when connecting and downloading from the FTP server
+                enable_tls - enable TLS encryption when connecting and downloading from the FTP server
         """
         # init
         self._server_url = server_url
@@ -76,7 +76,7 @@ class FtpFileDownloader(object):
         self._com_queue_in = None
         self._com_queue_out = None
         self._clean = clean
-        self._disable_tls = disable_tls
+        self._enable_tls = enable_tls
         self._abort_download = False
 
         # handlers
@@ -96,16 +96,16 @@ class FtpFileDownloader(object):
     def _ftp_connection(self):
         """ throws an exception similar to ftplib.error_perm: 500 Unknown command: "AUTH TLS" if ftp server does not
         support tls """
-        if self._disable_tls:
-            ftp = FTP()
-        else:
+        if self._enable_tls:
             ftp = FTP_TLS()
+        else:
+            ftp = FTP()
 
         ftp.connect(self._server_url, self._port)
 
         ftp.login(self._username, self._password)
 
-        if not self._disable_tls:
+        if self._enable_tls:
             ftp.prot_p()
         return ftp
 
@@ -390,7 +390,7 @@ class FtpFileDownloader(object):
             # show a pretty message if this server does not support AUTH_TLS
             if e.message.startswith('500') and 'TLS' in e.message:
                 raise IOError(e.message + '\nThis server probably does not support TLS, ' +
-                              'try adding the --disable_tls flag')
+                              'try removing the --enable_tls flag')
             else:
                 raise e
 
@@ -399,7 +399,7 @@ class FtpFileDownloader(object):
             listing = None
             try:
                 ftp.cwd(remote_path)
-                listing = ftp.nlst(remote_path)
+                listing = ftp.nlst(remote_path.replace('[', r'\['))
             except (error_temp, error_perm), _:
                 pass
 

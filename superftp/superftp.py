@@ -4,6 +4,7 @@
 #    Imports
 # --------------------------------------------------
 import argparse
+import ftplib
 import os
 import sys
 from functools import partial
@@ -158,7 +159,10 @@ def _display_full(ftp_download_manager, blockmap, remote_filepath):
             remote_file_path - the file path on the remote server of the file being downloaded
     """
     # get the window size
-    rows, columns = [int(x) for x in os.popen('stty size', 'r').read().split()]
+    try:
+        rows, columns = [int(x) for x in os.popen('stty size', 'r').read().split()]
+    except ValueError, _:
+        rows, columns = (24, 80)
     y = 1
 
     # show the pretty summary line
@@ -227,7 +231,7 @@ def _run(args):
                                        initial_blocksize=args['blocksize'],
                                        kill_speed=args['kill_speed'],
                                        clean=args['clean'],
-                                       disable_tls=args['disable_tls'])
+                                       enable_tls=args['enable_tls'])
 
     # download
     ftp_downloader.on_refresh_display = partial(_on_refresh_display, args['display_mode'])
@@ -235,8 +239,9 @@ def _run(args):
         ftp_downloader.download(args['remote_path'], args['local_path'])
     except KeyboardInterrupt:
         ftp_downloader.abort_download()
+    except ftplib.error_perm, e:
+        sys.stderr.write('\n' + 'FTP ERROR: ' + str(e) + '\n')
     except IOError, e:
-        # sys.stderr.write(traceback.format_exc())
         sys.stderr.write('\n' + str(e) + '\n')
 
     sys.stdout.write(ANSI_WHITE + '\n')
@@ -247,12 +252,15 @@ def main():
     """ main function, handles parsing of arguments """
     parser = argparse.ArgumentParser(description=("Multi-segmented FTP downloader\n\nDownloads and FTP file using " +
                                                   "multiple threads concurrently."))
-    parser.add_argument("--server", help="ftp server to connect to", required=True)
+    parser.add_argument("-s", "--server", help="ftp server to connect to", required=True)
+    parser.add_argument("-u", "--username", help="username to login with", default='anonymous')
+    parser.add_argument("-p", "--password", help="password to login with", default='password')
+    parser.add_argument("-rp", "--remote_path", help="location of file or directory on ftp server to download",
+                        required=True)
+    parser.add_argument("-lp", "--local_path", help="local location to save file to, can be a directory name",
+                        default='.')
+
     parser.add_argument("--port", help="port number to use", type=int, default=21)
-    parser.add_argument("--username", help="username to login with", default='anonymous')
-    parser.add_argument("--password", help="password to login with", default='password')
-    parser.add_argument("--remote_path", help="location of file or directory on ftp server to download", required=True)
-    parser.add_argument("--local_path", help="local location to save file to, can be a directory name", default='.')
     parser.add_argument("--connections", help="number of concurrent connections to use", type=int, default=4)
     parser.add_argument("--min_blocks_per_segment",
                         help="minimum number of contigous 1MB blocks allocated per connection", type=int, default=8)
@@ -265,7 +273,7 @@ def main():
     parser.add_argument("--kill_speed", help=("minimum speed in MB/sec a download thread must average or else it is" +
                                               " killed"),
                         type=float, default=1.0)
-    parser.add_argument("--disable_tls", help="disable FTP TLS encryption", action="store_true")
+    parser.add_argument("--enable_tls", help="enable FTP TLS encryption", action="store_true")
 
     args = parser.parse_args()
     _run(vars(args))
