@@ -27,8 +27,16 @@ In sum:
 * As segments complete, Superftp reassigns parallel downloads to
   remaining segments.
 * Aborted, failed, or killed downloads can be resumed
- 
-#### Quickstart
+
+### Installation
+
+The easiest way to install is using pip
+
+`pip install superftp`
+
+
+
+### Quickstart
 
 Download /example.txt from ftp server with address ftpserver.example, username of Anonymous, and password of password to the current directory.
 
@@ -63,3 +71,9 @@ In order to run the unit tests, `pyftpdlib==1.5.5` is required
     * run the unit tests for the project
     * generate documentation for the project (the generated documentation is available at `docs/_build/html/index.html`)
     * package the project into a redistributable, the redistributable is available in the `dist` directory in the root of the project
+
+
+
+### Release Notes ###
+v1.0.3
+* First official release
