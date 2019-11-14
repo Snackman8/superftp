@@ -9,7 +9,10 @@ import os
 import sys
 from functools import partial
 # disable pylint for relative-import below, no way to make it work with sphinx and nosetests and comply with pylint
-from ftp_file_download_manager import FtpFileDownloader     # pylint: disable=W0403
+if sys.version_info >= (3, 0):
+    from .ftp_file_download_manager import FtpFileDownloader     # pylint: disable=W0403
+else:
+    from ftp_file_download_manager import FtpFileDownloader     # pylint: disable=W0403
 
 
 # --------------------------------------------------
@@ -179,7 +182,7 @@ def _display_full(ftp_download_manager, blockmap, remote_filepath, force_window_
     else:
         try:
             rows, columns = [int(x) for x in os.popen('stty size', 'r').read().split()]
-        except ValueError, _:
+        except ValueError as _:
             rows, columns = (24, 80)
     y = 1
 
@@ -224,7 +227,7 @@ def _on_refresh_display(display_mode, ftp_download_manager, blockmap, remote_fil
     if display_mode == 'quiet':
         # no display when quiet
         return
-    elif display_mode == 'compact':
+    if display_mode == 'compact':
         _display_compact(ftp_download_manager, blockmap, remote_filepath)
     elif display_mode == 'full':
         _display_full(ftp_download_manager, blockmap, remote_filepath)
@@ -257,9 +260,9 @@ def _run(args):
         ftp_downloader.download(args['remote_path'], args['local_path'])
     except KeyboardInterrupt:
         ftp_downloader.abort_download()
-    except ftplib.error_perm, e:
+    except ftplib.error_perm as e:
         sys.stderr.write('\n' + 'FTP ERROR: ' + str(e) + '\n')
-    except IOError, e:
+    except IOError as e:
         sys.stderr.write('\n' + str(e) + '\n')
 
     sys.stdout.write(ANSI_WHITE + '\n')

@@ -47,7 +47,7 @@ class TestBlockmap(unittest.TestCase):
         """ tests that blockmap raises exception if a directory is passed in as local dir """
         try:
             Blockmap('testfile.txt', self._results_dir, None, 1, 1, 1048576)
-        except BlockmapException, _:
+        except BlockmapException as _:
             pass
         else:
             self.fail('Expected exception')
@@ -58,7 +58,7 @@ class TestBlockmap(unittest.TestCase):
         blockmap.init_blockmap()
         try:
             blockmap.change_block_range_status(1024 * 1024 * 0.1, 4, '0')
-        except BlockmapException, _:
+        except BlockmapException as _:
             pass
         else:
             self.fail('Expected exception')
@@ -69,7 +69,7 @@ class TestBlockmap(unittest.TestCase):
         blockmap.init_blockmap()
         try:
             blockmap.change_block_range_status(1024 * 1024 * 0, 4, 'Z')
-        except BlockmapException, _:
+        except BlockmapException as _:
             pass
         else:
             self.fail('Expected exception')

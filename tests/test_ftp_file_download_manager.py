@@ -92,7 +92,7 @@ class TestFTPFileDownloadManager(unittest.TestCase):
                                 initial_blocksize=1048576, kill_speed=0, clean=False, enable_tls=True)
         try:
             ftp.download('testfile.txt', self._results_dir)
-        except ftplib.error_perm, e:
+        except ftplib.error_perm as e:
             self.assertEqual(str(e), '500 Command "AUTH" not understood.')
 
     @unittest.skip("not implemented")

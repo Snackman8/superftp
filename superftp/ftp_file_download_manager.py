@@ -5,18 +5,40 @@
 from collections import OrderedDict
 from contextlib import closing
 import os
+import ssl
+import sys
 import time
 from ftplib import FTP, FTP_TLS, error_temp, error_perm
-from Queue import Queue, PriorityQueue, Empty
 from threading import Thread
 # disable pylint for relative-import below, no way to make it work with sphinx and nosetests and comply with pylint
-from blockmap import Blockmap   # pylint: disable=W0403
+
+if sys.version_info >= (3, 0):
+    from queue import Queue, PriorityQueue, Empty
+    from .blockmap import Blockmap
+else:
+    from Queue import Queue             # pylint: disable=E0401
+    from Queue import PriorityQueue     # pylint: disable=E0401
+    from Queue import Empty             # pylint: disable=E0401
+    from blockmap import Blockmap       # pylint: disable=E0401
 
 
 # --------------------------------------------------
 #    Classes
 # --------------------------------------------------
-class FtpFileDownloader(object):
+# somewhere on stackoverflow is this code which fixes TLS
+class PatchedFTPTLS(FTP_TLS):
+    """Explicit FTPS, with shared TLS session"""
+    def ntransfercmd(self, cmd, rest=None):
+        conn, size = FTP.ntransfercmd(self, cmd, rest)
+        if self._prot_p:
+            session = self.sock.session
+            if isinstance(self.sock, ssl.SSLSocket):
+                session = self.sock.session
+            conn = self.context.wrap_socket(conn, server_hostname=self.host, session=session)  # this is the fix
+        return conn, size
+
+
+class FtpFileDownloader:
     """ Performs downloading of a single file using FTP
 
         set the on_refresh_display to a function handler of type f(blockmap, byte_offset, worker_id)
@@ -84,7 +106,8 @@ class FtpFileDownloader(object):
 
         # setup the initial dead threads for each download connections
         self._download_threads = OrderedDict([(format(k, 'x'),
-                                               Thread()) for k in range(0, concurrent_connections)])
+                                               Thread()) for k in range(0,  # pylint: disable=W1506
+                                                                        concurrent_connections)])
         for k in self._download_threads.keys():
             self._download_threads[k].private_thread_state = self.IDLE
             self._download_threads[k].private_start_time = time.time()
@@ -97,7 +120,11 @@ class FtpFileDownloader(object):
         """ throws an exception similar to ftplib.error_perm: 500 Unknown command: "AUTH TLS" if ftp server does not
         support tls """
         if self._enable_tls:
-            ftp = FTP_TLS()
+            if sys.version_info >= (3, 0):
+                ftp = PatchedFTPTLS()
+            else:
+                # TLS does not work so good on python 2.7
+                ftp = FTP_TLS()
         else:
             ftp = FTP()
 
@@ -172,27 +199,27 @@ class FtpFileDownloader(object):
                 break
 
             # process the message
-            if msg[1]['type'] == 'data_received_high_priority':
+            if msg[1][1]['type'] == 'data_received_high_priority':
                 # update the blockmap to show the block has been downloaded and is pending save to disk
-                blockmap.change_block_range_status(msg[1]['byte_offset'], 1, blockmap.SAVING)
-            elif msg[1]['type'] in ('aborted_high_priority', 'thread_finished_high_priority'):
+                blockmap.change_block_range_status(msg[1][1]['byte_offset'], 1, blockmap.SAVING)
+            elif msg[1][1]['type'] in ('aborted_high_priority', 'thread_finished_high_priority'):
                 # abort this download thread, so mark all of the blocks as available
-                blockmap.change_status(msg[1]['worker_id'], blockmap.AVAILABLE)
+                blockmap.change_status(msg[1][1]['worker_id'], blockmap.AVAILABLE)
                 # set the download thread state to IDLE
-                self._download_threads[msg[1]['worker_id']].private_thread_state = self.IDLE
+                self._download_threads[msg[1][1]['worker_id']].private_thread_state = self.IDLE
                 # zero out the download speeds for this thread
-                self._download_threads[msg[1]['worker_id']].private_dl_speed_fifo = [0] * self.SPEED_FIFO_SIZE
-            elif msg[1]['type'] == 'dl_speed_update_high_priority':
+                self._download_threads[msg[1][1]['worker_id']].private_dl_speed_fifo = [0] * self.SPEED_FIFO_SIZE
+            elif msg[1][1]['type'] == 'dl_speed_update_high_priority':
                 # a new download speed has been calculated, update the worker dl speed fifo
-                self._download_threads[msg[1]['worker_id']].private_dl_speed_fifo.insert(0, msg[1]['dl_speed'])
-                self._download_threads[msg[1]['worker_id']].private_dl_speed_fifo.pop(-1)
+                self._download_threads[msg[1][1]['worker_id']].private_dl_speed_fifo.insert(0, msg[1][1]['dl_speed'])
+                self._download_threads[msg[1][1]['worker_id']].private_dl_speed_fifo.pop(-1)
             else:
-                raise Exception('Unhandled msg type "%s"' % msg[1]['type'])
+                raise Exception('Unhandled msg type "%s"' % msg[1][1]['type'])
 
     def _process_low_priority_messages(self, blockmap, local_path):
         # init
         blocks = 0
-        data = ''
+        data = b''
         next_byte_offset = None
         starting_byte_offset = None
         _, _, _, blocksize, _ = blockmap.get_statistics()
@@ -203,20 +230,20 @@ class FtpFileDownloader(object):
             msg = self._com_queue_out.get()
             # if then ext message is not the next block in the data chain, put the msg back and process what we have
             if (msg[0] == self.HIGH_PRIORITY_MSG) or ((next_byte_offset is not None) and
-                                                      (msg[1]['byte_offset'] != next_byte_offset)):
+                                                      (msg[1][1]['byte_offset'] != next_byte_offset)):
                 self._com_queue_out.put(msg)
                 break
 
             # sanity check, this is the only low priority message we have
-            if msg[1]['type'] != 'data_received_low_priority':
-                raise Exception('Unhandled msg type "%s"' % msg[1]['type'])
+            if msg[1][1]['type'] != 'data_received_low_priority':
+                raise Exception('Unhandled msg type "%s"' % msg[1][1]['type'])
 
             # add this message data to the chain
             if starting_byte_offset is None:
-                starting_byte_offset = msg[1]['byte_offset']
+                starting_byte_offset = msg[1][1]['byte_offset']
             blocks = blocks + 1
-            data = data + msg[1]['data']
-            next_byte_offset = msg[1]['byte_offset'] + blocksize
+            data = data + msg[1][1]['data']
+            next_byte_offset = msg[1][1]['byte_offset'] + blocksize
 
         # save the block
         if starting_byte_offset is not None:
@@ -247,19 +274,19 @@ class FtpFileDownloader(object):
             # loop until the correct amount of data has been transferred
             bytes_received = 0
             bytes_since_last_second = 0
-            data = ''
+            data = b''
             t = time.time()
             while bytes_received < (blocks * blocksize):
                 # check for a message on in the incoming communication queue
                 while not self._com_queue_in.empty():
                     try:
                         msg = self._com_queue_in.get_nowait()
-                    except Empty, _:
+                    except Empty as _:
                         continue
                     if msg['type'] == 'kill':
                         if msg['worker_id'] == worker_id:
-                            self._com_queue_out.put((self.HIGH_PRIORITY_MSG,
-                                                     {'type': 'aborted_high_priority', 'worker_id': worker_id}))
+                            new_msg = (time.time(), {'type': 'aborted_high_priority', 'worker_id': worker_id})
+                            self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
                             return
                         else:
                             self._com_queue_in.put(msg)
@@ -275,9 +302,9 @@ class FtpFileDownloader(object):
                     speed = bytes_since_last_second / (time.time() - t)
                     t = time.time()
                     bytes_since_last_second = 0
-                    self._com_queue_out.put((self.HIGH_PRIORITY_MSG,
-                                             {'type': 'dl_speed_update_high_priority', 'worker_id': worker_id,
-                                              'dl_speed': speed}))
+                    new_msg = (time.time(), {'type': 'dl_speed_update_high_priority', 'worker_id': worker_id,
+                                             'dl_speed': speed})
+                    self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
 
                 # save the data
                 if chunk:
@@ -290,13 +317,13 @@ class FtpFileDownloader(object):
 
                     # enqueue a high priority data received for quickly update the UI that the block has been downloaded
                     # and is pending saving
-                    self._com_queue_out.put((self.HIGH_PRIORITY_MSG,
-                                             {'type': 'data_received_high_priority', 'worker_id': worker_id,
-                                              'byte_offset': byte_offset}))
+                    new_msg = (time.time(), {'type': 'data_received_high_priority', 'worker_id': worker_id,
+                                             'byte_offset': byte_offset})
+                    self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
                     # enqueue a low priority data received to actually save the data
-                    self._com_queue_out.put((byte_offset,
-                                             {'type': 'data_received_low_priority', 'worker_id': worker_id,
-                                              'byte_offset': byte_offset, 'data': block}))
+                    new_msg = (time.time(), {'type': 'data_received_low_priority', 'worker_id': worker_id,
+                                             'byte_offset': byte_offset, 'data': block})
+                    self._com_queue_out.put((byte_offset, new_msg))
                     byte_offset = byte_offset + blocksize
                     bytes_received = bytes_received + blocksize
 
@@ -305,8 +332,8 @@ class FtpFileDownloader(object):
                         break
 
             # set the thread to be idle
-            self._com_queue_out.put((self.HIGH_PRIORITY_MSG,
-                                     {'type': 'thread_finished_high_priority', 'worker_id': worker_id}))
+            new_msg = (time.time(), {'type': 'thread_finished_high_priority', 'worker_id': worker_id})
+            self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
 
     # --------------------------------------------------
     # Properties
@@ -386,10 +413,10 @@ class FtpFileDownloader(object):
         # open an ftp connection to the server, have a special check if the server does not support TLS
         try:
             ftp = self._ftp_connection()
-        except (error_temp, error_perm), e:
+        except (error_temp, error_perm) as e:
             # show a pretty message if this server does not support AUTH_TLS
-            if e.message.startswith('500') and 'TLS' in e.message:
-                raise IOError(e.message + '\nThis server probably does not support TLS, ' +
+            if str(e).startswith('500') and 'TLS' in str(e):
+                raise IOError(str(e) + '\nThis server probably does not support TLS, ' +
                               'try removing the --enable_tls flag')
             else:
                 raise e
@@ -400,7 +427,7 @@ class FtpFileDownloader(object):
             try:
                 ftp.cwd(remote_path)
                 listing = ftp.nlst(remote_path.replace('[', r'\['))
-            except (error_temp, error_perm), _:
+            except (error_temp, error_perm) as _:
                 pass
 
         # download the file if this is not a directory

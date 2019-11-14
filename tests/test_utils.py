@@ -5,9 +5,7 @@
 # --------------------------------------------------
 from contextlib import contextmanager
 import os
-import Queue
 import shutil
-from StringIO import StringIO
 import sys
 from threading import Thread
 import time
@@ -17,6 +15,13 @@ from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import MultiprocessFTPServer
 
 from superftp.blockmap import Blockmap
+
+if sys.version_info >= (3, 0):
+    import queue
+    from io import StringIO
+else:
+    import Queue as queue
+    from StringIO import StringIO
 
 
 # --------------------------------------------------
@@ -100,7 +105,7 @@ def setup_ftp_server(ftp_thread, com_queue, results_dir):
     teardown_ftp_server(ftp_thread, com_queue)
 
     # generate the test data
-    com_queue = Queue.Queue()
+    com_queue = queue.Queue()
     results_dir = create_results_dir(results_dir)
     test_dir = create_tdata_dir('test_data')
     ftp_thread = start_ftp_server(com_queue, test_dir, 2121)

@@ -32,8 +32,13 @@ In sum:
 
 The easiest way to install is using pip
 
-`pip install superftp`
+To install for python3 (preferred method)
 
+`pip3 install superftp`
+
+To install for python2
+
+`pip2 install superftp`
 
 
 ### Quickstart

@@ -12,10 +12,9 @@ import os
 # --------------------------------------------------
 class BlockmapException(Exception):
     """ Blockmap Exception Class """
-    pass
 
 
-class Blockmap(object):
+class Blockmap:
     """ class used to keep track of which blocks in the file have been downloaded, which are currently pending download
         by which connections, and which blocks are available.
 
@@ -182,7 +181,7 @@ class Blockmap(object):
             raise BlockmapException('status of "%s" is not a valid status' % status)
 
         # set the status of the block
-        starting_block = byte_offset / blocksize
+        starting_block = byte_offset // blocksize
         for i in range(0, blocks):
             blockmap = blockmap[:starting_block + i] + status + blockmap[starting_block + i + 1:]
         self._persist_blockmap(blocksize, blockmap)

@@ -39,14 +39,22 @@ echo "--------------------------------------------------"
 echo "    PYLINT                                        "
 echo "--------------------------------------------------"
 echo "\033[0m"
-(cd $PROJECT_NAME && find . -iname "*.py" | grep -v ./docs/conf.py | xargs pylint --max-line-length=120 --good-names=a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,y,v,w,x,y,z --disable=R0902,R0913,R0914)
+(cd $PROJECT_NAME && find . -iname "*.py" | grep -v ./docs/conf.py | xargs pylint3 --max-line-length=120 --good-names=a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,y,v,w,x,y,z --disable=R0902,R0913,R0914,no-else-return)
 
 echo "\033[0;93m"
 echo "--------------------------------------------------"
-echo "    NOSETESTS                                     "
+echo "    NOSETESTS PYTHON 2                            "
 echo "--------------------------------------------------"
 echo "\033[0m"
 nosetests --with-coverage --cover-inclusive --cover-package=$PROJECT_NAME --cover-html
+echo " "
+
+echo "\033[0;93m"
+echo "--------------------------------------------------"
+echo "    NOSETESTS PYTHON 3                            "
+echo "--------------------------------------------------"
+echo "\033[0m"
+nosetests3 --with-coverage --cover-inclusive --cover-package=$PROJECT_NAME --cover-html
 echo " "
 
 echo "\033[0;93m"
