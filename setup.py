@@ -7,7 +7,7 @@ f.close()
 
 setuptools.setup(
     name="superftp",
-    version="1.0.2",
+    version="1.0.3",
     description="Multisegment FTP Client",
     long_description=long_description,
     long_description_content_type='text/markdown',
