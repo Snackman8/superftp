@@ -7,6 +7,7 @@ import argparse
 import ftplib
 import os
 import sys
+import traceback
 from functools import partial
 # disable pylint for relative-import below, no way to make it work with sphinx and nosetests and comply with pylint
 if sys.version_info >= (3, 0):
@@ -264,6 +265,8 @@ def _run(args):
         sys.stderr.write('\n' + 'FTP ERROR: ' + str(e) + '\n')
     except IOError as e:
         sys.stderr.write('\n' + str(e) + '\n')
+        if args['debug']:
+            sys.stderr.write(traceback.format_exc())
 
     sys.stdout.write(ANSI_WHITE + '\n')
     sys.stdout.flush()
@@ -295,6 +298,7 @@ def main():
                                               " killed"),
                         type=float, default=1.0)
     parser.add_argument("--enable_tls", help="enable FTP TLS encryption", action="store_true")
+    parser.add_argument("--debug", help="enable debug mode", action="store_true")
 
     args = parser.parse_args()
     _run(vars(args))

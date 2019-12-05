@@ -54,6 +54,8 @@ class FtpFileDownloader:
 
     SPEED_FIFO_SIZE = 4     # depth of the FIFO to track download speeds
 
+    NUM_QUEUE_MSGS_THROTTLE = 100   # throttle download threads if the queue has too many messages
+
     # --------------------------------------------------
     # Init
     # --------------------------------------------------
@@ -151,7 +153,7 @@ class FtpFileDownloader:
         ftp.sendcmd("TYPE A")           # Switch to Binary mode
         return size
 
-    def _manage_download_threads(self, blockmap, remote_path):
+    def _manage_download_threads(self, blockmap, remote_path, throttle):
         """ kill underperforming thread and allocate work to idle threads """
         # check if we need to kill any download threads because they have stalled
         # kill speed must be set to greater than zero, and the download thread must be at least 10 seconds old
@@ -167,6 +169,10 @@ class FtpFileDownloader:
                         # kill if the average speed
                         if max(self.worker_dl_speeds[k]) / 1024 / 1024 < self._kill_speed:
                             self.abort_download(k)
+
+        # do not allocate new threads if we are throttled
+        if throttle:
+            return
 
         # gather all of the idle download threads
         idle_download_workers = []
@@ -244,6 +250,10 @@ class FtpFileDownloader:
             blocks = blocks + 1
             data = data + msg[1][1]['data']
             next_byte_offset = msg[1][1]['byte_offset'] + blocksize
+
+            # save max of 256MB at a time
+            if len(data) >= 256 * 1024 * 1024:
+                break
 
         # save the block
         if starting_byte_offset is not None:
@@ -486,7 +496,14 @@ class FtpFileDownloader:
             if self._abort_download:
                 return
 
-            self._manage_download_threads(blockmap, remote_path)
+            throttle = self._com_queue_out.qsize() > self.NUM_QUEUE_MSGS_THROTTLE
+            self._manage_download_threads(blockmap, remote_path, throttle)
+
+            # process all of the high priority messages
+            self._process_high_priority_messages(blockmap)
+
+            # process low priority messages (just process one of them)
+            self._process_low_priority_messages(blockmap, local_path)
 
             # process all of the high priority messages
             self._process_high_priority_messages(blockmap)
