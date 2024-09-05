@@ -452,6 +452,14 @@ class FtpFileDownloader:
 
         # loop through each item in the directory and download it
         for f in listing:
+            # handle if absolute
+            if f.startswith('/') and f.startswith(remote_path):
+                f = f[len(remote_path):]
+                if f.startswith('/'):
+                    f = f[1:]
+            if f in ['.', '..']:
+                continue
+
             self.download(os.path.join(remote_path, f), os.path.join(local_path, f))
 
     def download_file(self, remote_path, local_path):
