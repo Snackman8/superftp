@@ -137,6 +137,36 @@ class TestSuperFTP(unittest.TestCase):
         s = superftp._pretty_summary_line(ftp, blockmap, '\remote\test')
         self.assertEqual(s, 'ETA:infinite        0.0%  0.000MB/sec  \remote\test')
 
+    def test_effective_display_mode_full_falls_back_without_tty(self):
+        """ test full display falls back to compact for non-tty streams """
+        class FakeStream(object):
+            """ fake stream that is not a tty """
+            def isatty(self):
+                return False
+
+        self.assertEqual(superftp._effective_display_mode('full', FakeStream()), 'compact')
+        self.assertEqual(superftp._effective_display_mode('compact', FakeStream()), 'compact')
+
+    def test_display_full_uses_shutil_terminal_size(self):
+        """ test display_full uses shutil.get_terminal_size when not forced """
+        ftp = FtpFileDownloader(server_url='localhost', username='user', password='12345', port=2121,
+                                concurrent_connections=4, min_blocks_per_segment=1, max_blocks_per_segment=2,
+                                initial_blocksize=1048576, kill_speed=0, clean=True)
+
+        blockmap = create_blockmap(self._results_dir, 1024 * 1024 * 32)
+        blockmap.init_blockmap()
+
+        old_get_terminal_size = superftp.shutil.get_terminal_size
+        superftp.shutil.get_terminal_size = lambda _fallback: os.terminal_size((80, 24))
+        try:
+            with captured_output() as (out, err):
+                superftp._display_full(ftp, blockmap, '\remote\test')
+        finally:
+            superftp.shutil.get_terminal_size = old_get_terminal_size
+
+        self.assertEqual(err.getvalue(), '')
+        self.assertTrue(out.getvalue().startswith('\x1b[1;0H\x1b[37mETA:infinite'))
+
 
 class TestSuperFTPRun(unittest.TestCase):
     """ tests for superftp class run method"""

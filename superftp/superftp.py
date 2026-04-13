@@ -6,14 +6,17 @@
 import argparse
 import ftplib
 import os
+import shutil
 import sys
 import traceback
 from functools import partial
 # disable pylint for relative-import below, no way to make it work with sphinx and nosetests and comply with pylint
 if sys.version_info >= (3, 0):
     from .ftp_file_download_manager import FtpFileDownloader     # pylint: disable=W0403
+    from . import __version__
 else:
     from ftp_file_download_manager import FtpFileDownloader     # pylint: disable=W0403
+    __version__ = '1.0.4'
 
 
 # --------------------------------------------------
@@ -23,6 +26,7 @@ ANSI_WHITE = '\033[37m'
 ANSI_RED = '\033[91m'
 ANSI_GREEN = '\033[92m'
 ANSI_YELLOW = '\033[93m'
+ANSI_RESET = '\033[0m'
 
 ANSI_CLEAR_REST_OF_LINE = '\033[K'
 ANSI_CLEAR_REST_OF_SCREEN = '\033[J'
@@ -154,6 +158,17 @@ def _pretty_dl_speed_fifo(ftp_download_manager, kill_speed):
     return s
 
 
+def _effective_display_mode(display_mode, stream=None):
+    """ return the display mode adjusted for the current output stream """
+    if stream is None:
+        stream = sys.stdout
+
+    isatty = getattr(stream, 'isatty', None)
+    if display_mode == 'full' and (isatty is None or not isatty()):
+        return 'compact'
+    return display_mode
+
+
 def _display_compact(ftp_download_manager, blockmap, remote_filepath):
     """ writes a one line compact status display of the current download to the screen.  Does not use ANSI
         characters
@@ -181,10 +196,9 @@ def _display_full(ftp_download_manager, blockmap, remote_filepath, force_window_
     if force_window_size:
         rows, columns = force_window_size
     else:
-        try:
-            rows, columns = [int(x) for x in os.popen('stty size', 'r').read().split()]
-        except ValueError as _:
-            rows, columns = (24, 80)
+        terminal_size = shutil.get_terminal_size((80, 24))
+        columns = terminal_size.columns
+        rows = terminal_size.lines
     y = 1
 
     # show the pretty summary line
@@ -225,6 +239,7 @@ def _on_refresh_display(display_mode, ftp_download_manager, blockmap, remote_fil
             remote_file_path - the file path on the remote server of the file being downloaded
     """
     # update the display
+    display_mode = _effective_display_mode(display_mode)
     if display_mode == 'quiet':
         # no display when quiet
         return
@@ -268,7 +283,7 @@ def _run(args):
         if args['debug']:
             sys.stderr.write(traceback.format_exc())
 
-    sys.stdout.write(ANSI_WHITE + '\n')
+    sys.stdout.write(ANSI_RESET + '\n')
     sys.stdout.flush()
 
 
@@ -276,6 +291,7 @@ def main():
     """ main function, handles parsing of arguments """
     parser = argparse.ArgumentParser(description=("Multi-segmented FTP downloader\n\nDownloads and FTP file using " +
                                                   "multiple threads concurrently."))
+    parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
     parser.add_argument("-s", "--server", help="ftp server to connect to", required=True)
     parser.add_argument("-u", "--username", help="username to login with", default='anonymous')
     parser.add_argument("-p", "--password", help="password to login with", default='password')
@@ -301,6 +317,10 @@ def main():
     parser.add_argument("--debug", help="enable debug mode", action="store_true")
 
     args = parser.parse_args()
+    if args.connections < 1:
+        parser.error('--connections must be at least 1')
+    if args.connections > 16:
+        parser.error('--connections cannot exceed 16')
     _run(vars(args))
 
 

@@ -1,28 +1,19 @@
 # superftp
 Fast multi-segment FTP client
 
-This FTP client maximizes download speed for large files over 
-long geographic distances.  The program splits the file into
-segments. It then launches several download process, one for each segment.
-The program monitors what parts of which segments have been downloaded.
-Superftp monitors how fast each segment is downloading.  
+Superftp maximizes download speed for large FTP transfers over long geographic distances. It splits a remote file into
+segments, downloads those segments in parallel, and keeps track of what has already been saved so interrupted downloads
+can resume safely.
 
-Note that over the Internet, each download routes differently from the source to
-destination differently, 
-and so the download speeds will vary - 
-especially as the geographic distance between 
-the  server and client increases.
-Superftp monitors the download speeds and kills slow downloads that
-have been routed inefficiently, and then restarts them.  It keeps track
-of what segments have been downloaded and does not redownload any
-segments.
+Because each connection may take a different network path, segment speeds can vary widely. Superftp monitors those
+connections, reallocates work as segments complete, and can restart slow segments to avoid getting stuck on poor routes.
 
 In sum:
 
-* Large files are segmented into small pieces. 
-* Each segment is downloaded in parallel.  
+* Large files are segmented into small pieces.
+* Each segment is downloaded in parallel.
 * Superftp monitors the download rate on each segment.
-* Each segment routes differently from the source
+* Each segment may route differently from the source.
 * Superftp restarts segments which have been routed through slow connections.
 * As segments complete, Superftp reassigns parallel downloads to
   remaining segments.
@@ -30,55 +21,92 @@ In sum:
 
 ### Installation
 
-The easiest way to install is using pip
+Superftp is Python 3 only.
 
-To install for python3 (preferred method)
+Install from PyPI:
 
 `pip3 install superftp`
 
-To install for python2
+Install the latest version directly from git without cloning first:
 
-`pip2 install superftp`
+`pip3 install git+https://github.com/Snackman8/superftp.git`
 
+After installation, the `superftp` command should be available in your environment:
+
+`superftp --help`
 
 ### Quickstart
 
-Download /example.txt from ftp server with address ftpserver.example, username of Anonymous, and password of password to the current directory.
+Download `/example.txt` from `ftpserver.example` into the current directory:
 
-    superftp --server ftpserver.example --username Anonymous --password password \
+    superftp --server ftpserver.example --username anonymous --password password \
     --remote_path /example.txt
 
-The argument specifiers also have short versions of -s, -u, -p, -rp
+The argument specifiers also have short versions:
 
-    superftp -s ftpserver.example -u Anonymous -p password -rp /example.txt
+    superftp -s ftpserver.example -u anonymous -p password -rp /example.txt
 
-To enable TLS encryption add the --enable_tls flag
+Download into a specific local directory:
 
-    superftp -s ftpserver.example -u Anonymous -p password -rp /example.txt --enable_tls
+    superftp -s ftpserver.example -u anonymous -p password -rp /example.txt -lp ./downloads
 
-Run the superftp command with the -h option to see the help
+Download a remote directory recursively:
 
+    superftp -s ftpserver.example -u anonymous -p password -rp /pub/files -lp ./downloads
 
+If a download is interrupted, rerun the same command to resume it:
+
+    superftp -s ftpserver.example -u anonymous -p password -rp /bigfile.iso -lp ./downloads
+
+To enable TLS encryption, add the `--enable_tls` flag:
+
+    superftp -s ftpserver.example -u anonymous -p password -rp /example.txt --enable_tls
+
+To use a compact single-line status display:
+
+    superftp -s ftpserver.example -u anonymous -p password -rp /example.txt --display_mode compact
+
+To start fresh and discard any existing local file and resume state:
+
+    superftp -s ftpserver.example -u anonymous -p password -rp /example.txt --clean
+
+Run the command with `-h` to see the full help.
+
+### How Resume Works
+
+Superftp stores resume state in a sidecar file named `<local file>.blockmap`.
+
+* If a download is interrupted, rerunning the same command resumes from the saved blockmap.
+* `--clean` removes the local file and its blockmap before downloading again.
+* A partial local file without a matching blockmap is treated as a fresh download.
+
+### Tuning
+
+The defaults are intended to work well for general use, but a few options are worth knowing:
+
+* `--connections` controls how many FTP connections download in parallel.
+* `--blocksize` controls how much data each tracked block represents.
+* `--kill_speed` sets the minimum average speed in MB/sec before a connection is restarted.
+* `--display_mode` can be `quiet`, `compact`, or `full`.
+
+For most users, the defaults are the right place to start. `--kill_speed` is mainly useful for long-distance transfers
+where some connections occasionally route poorly.
 
 ### Dependencies
-The superftp application and module does not require any additional dependencies outside the standard  libraries.
-In order to run the unit tests, `pyftpdlib==1.5.5` is required
 
+Superftp runtime does not require any third-party packages beyond the Python 3 standard library.
 
+To run the unit tests:
 
-### Build superftp on a development machine
-
-1. Clone the git repository
-2. run the `build.sh` script in the root of the project, the build.sh script will do the following
-    * clean the project
-    * run pycodestyle on the project to check that best practice coding standards are followed
-    * run pylint on the project to check that best practice coding standards are followed
-    * run the unit tests for the project
-    * generate documentation for the project (the generated documentation is available at `docs/_build/html/index.html`)
-    * package the project into a redistributable, the redistributable is available in the `dist` directory in the root of the project
-
-
+`pyftpdlib==1.5.5`
 
 ### Release Notes ###
+v1.0.4
+* Added README instructions for direct `pip` installation from git.
+* Documented Python 3-only support and deprecated Python 2.
+* Clarified resume behavior, `--clean`, and common command examples.
+* Improved download safety for worker failures and truncated transfers.
+* Added validation for unsupported connection counts.
+
 v1.0.3
 * First official release

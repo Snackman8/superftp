@@ -88,6 +88,11 @@ class FtpFileDownloader:
                 enable_tls - enable TLS encryption when connecting and downloading from the FTP server
         """
         # init
+        if concurrent_connections < 1:
+            raise ValueError('concurrent_connections must be at least 1')
+        if concurrent_connections > len(Blockmap.PENDING):
+            raise ValueError('concurrent_connections cannot exceed %d' % len(Blockmap.PENDING))
+
         self._server_url = server_url
         self._username = username
         self._password = password
@@ -102,6 +107,7 @@ class FtpFileDownloader:
         self._clean = clean
         self._enable_tls = enable_tls
         self._abort_download = False
+        self._remote_filesize = None
 
         # handlers
         self.on_refresh_display = lambda _ftp_file_downloader, _blockmap, _remote_filepath: None
@@ -147,11 +153,11 @@ class FtpFileDownloader:
             Returns:
                 number of bytes in the file
         """
-        ftp = self._ftp_connection()
-        ftp.sendcmd("TYPE i")           # Switch to Binary mode
-        size = ftp.size(remote_path)    # Get size of file
-        ftp.sendcmd("TYPE A")           # Switch to Binary mode
-        return size
+        with closing(self._ftp_connection()) as ftp:
+            ftp.sendcmd("TYPE i")           # Switch to Binary mode
+            size = ftp.size(remote_path)    # Get size of file
+            ftp.sendcmd("TYPE A")           # Switch to Binary mode
+            return size
 
     def _manage_download_threads(self, blockmap, remote_path, throttle):
         """ kill underperforming thread and allocate work to idle threads """
@@ -185,9 +191,11 @@ class FtpFileDownloader:
         if available_blocks > 0:
             segments = blockmap.allocate_segments(idle_download_workers)
             for k in segments:
+                expected_bytes = min(segments[k]['blocks'] * blocksize,
+                                     max(0, self._remote_filesize - segments[k]['byte_offset']))
                 self._download_threads[k] = Thread(target=self._tw_ftp_download_segment,
                                                    args=(remote_path, segments[k]['byte_offset'], segments[k]['blocks'],
-                                                         blocksize, k))
+                                                         blocksize, k, expected_bytes))
                 self._download_threads[k].private_thread_state = self.ACTIVE
                 self._download_threads[k].private_start_time = time.time()
                 self._download_threads[k].private_dl_speed_fifo = [0] * self.SPEED_FIFO_SIZE
@@ -264,7 +272,7 @@ class FtpFileDownloader:
             # update the blockmap
             blockmap.change_block_range_status(starting_byte_offset, blocks, blockmap.DOWNLOADED)
 
-    def _tw_ftp_download_segment(self, remote_path, byte_offset, blocks, blocksize, worker_id):
+    def _tw_ftp_download_segment(self, remote_path, byte_offset, blocks, blocksize, worker_id, expected_bytes=None):
         """ thread worker to download a segment of a file from teh ftp server
 
             Args:
@@ -273,76 +281,90 @@ class FtpFileDownloader:
                 blocks - number of blocks to download, see self._blocksize for size of each block
                 worker_id - id of this worker thread, can be and of the characters in the set [0123456789ABCDEF]
         """
-        # open an ftp connection to the server
-        ftp = self._ftp_connection()
-        with closing(ftp):
-            # switch to FTP binary mode, then initiate a transfer starting at the byte_offset
-            ftp.voidcmd('TYPE I')
-            conn = ftp.transfercmd('retr %s' % remote_path, byte_offset)
-            conn.settimeout(30)
+        if expected_bytes is None:
+            expected_bytes = blocks * blocksize
 
-            # loop until the correct amount of data has been transferred
-            bytes_received = 0
-            bytes_since_last_second = 0
-            data = b''
-            t = time.time()
-            while bytes_received < (blocks * blocksize):
-                # check for a message on in the incoming communication queue
-                while not self._com_queue_in.empty():
-                    try:
-                        msg = self._com_queue_in.get_nowait()
-                    except Empty as _:
-                        continue
-                    if msg['type'] == 'kill':
-                        if msg['worker_id'] == worker_id:
-                            new_msg = (time.time(), {'type': 'aborted_high_priority', 'worker_id': worker_id})
-                            self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
-                            return
-                        else:
-                            self._com_queue_in.put(msg)
-                    else:
-                        raise Exception('Unhandled incoming message type of "%s"' % msg['type'])
+        try:
+            # open an ftp connection to the server
+            ftp = self._ftp_connection()
+            with closing(ftp):
+                # switch to FTP binary mode, then initiate a transfer starting at the byte_offset
+                ftp.voidcmd('TYPE I')
+                conn = ftp.transfercmd('retr %s' % remote_path, byte_offset)
+                with closing(conn):
+                    conn.settimeout(30)
 
-                # receive the data
-                chunk = conn.recv(blocksize * 8)
-
-                # calculate the speed and save it to the FIFO.  new speeds are pushed in at index 0
-                bytes_since_last_second = bytes_since_last_second + len(chunk)
-                if (time.time() - t) > 1.0:
-                    speed = bytes_since_last_second / (time.time() - t)
-                    t = time.time()
+                    # loop until the correct amount of data has been transferred
+                    bytes_received = 0
                     bytes_since_last_second = 0
-                    new_msg = (time.time(), {'type': 'dl_speed_update_high_priority', 'worker_id': worker_id,
-                                             'dl_speed': speed})
+                    data = b''
+                    t = time.time()
+                    while bytes_received < expected_bytes:
+                        # check for a message on in the incoming communication queue
+                        while not self._com_queue_in.empty():
+                            try:
+                                msg = self._com_queue_in.get_nowait()
+                            except Empty as _:
+                                continue
+                            if msg['type'] == 'kill':
+                                if msg['worker_id'] == worker_id:
+                                    new_msg = (time.time(), {'type': 'aborted_high_priority', 'worker_id': worker_id})
+                                    self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
+                                    return
+                                else:
+                                    self._com_queue_in.put(msg)
+                            else:
+                                raise Exception('Unhandled incoming message type of "%s"' % msg['type'])
+
+                        # receive the data
+                        chunk = conn.recv(blocksize * 8)
+
+                        # calculate the speed and save it to the FIFO.  new speeds are pushed in at index 0
+                        bytes_since_last_second = bytes_since_last_second + len(chunk)
+                        if (time.time() - t) > 1.0:
+                            speed = bytes_since_last_second / (time.time() - t)
+                            t = time.time()
+                            bytes_since_last_second = 0
+                            new_msg = (time.time(), {'type': 'dl_speed_update_high_priority', 'worker_id': worker_id,
+                                                     'dl_speed': speed})
+                            self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
+
+                        # save the data
+                        if chunk:
+                            data = data + chunk
+                        elif bytes_received + len(data) < expected_bytes:
+                            raise IOError('unexpected EOF while downloading segment')
+
+                        # send full blocks, or a single partial final block at EOF
+                        while len(data) >= blocksize or (not chunk and data):
+                            block_len = min(blocksize, expected_bytes - bytes_received)
+                            if len(data) < block_len:
+                                break
+
+                            block = data[:block_len]
+                            data = data[block_len:]
+
+                            # enqueue a high priority data received for quickly update the UI that the block has been
+                            # downloaded and is pending saving
+                            new_msg = (time.time(), {'type': 'data_received_high_priority', 'worker_id': worker_id,
+                                                     'byte_offset': byte_offset})
+                            self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
+                            # enqueue a low priority data received to actually save the data
+                            new_msg = (time.time(), {'type': 'data_received_low_priority', 'worker_id': worker_id,
+                                                     'byte_offset': byte_offset, 'data': block})
+                            self._com_queue_out.put((byte_offset, new_msg))
+                            byte_offset = byte_offset + blocksize
+                            bytes_received = bytes_received + block_len
+
+                            # stop on EOF after flushing the remaining bytes
+                            if not chunk:
+                                break
+
+                    # set the thread to be idle
+                    new_msg = (time.time(), {'type': 'thread_finished_high_priority', 'worker_id': worker_id})
                     self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
-
-                # save the data
-                if chunk:
-                    data = data + chunk
-
-                # send data if greater than blocksize
-                while (len(data) > blocksize) or not chunk:
-                    block = data[:blocksize]
-                    data = data[blocksize:]
-
-                    # enqueue a high priority data received for quickly update the UI that the block has been downloaded
-                    # and is pending saving
-                    new_msg = (time.time(), {'type': 'data_received_high_priority', 'worker_id': worker_id,
-                                             'byte_offset': byte_offset})
-                    self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
-                    # enqueue a low priority data received to actually save the data
-                    new_msg = (time.time(), {'type': 'data_received_low_priority', 'worker_id': worker_id,
-                                             'byte_offset': byte_offset, 'data': block})
-                    self._com_queue_out.put((byte_offset, new_msg))
-                    byte_offset = byte_offset + blocksize
-                    bytes_received = bytes_received + blocksize
-
-                    # stop of EOF
-                    if not chunk:
-                        break
-
-            # set the thread to be idle
-            new_msg = (time.time(), {'type': 'thread_finished_high_priority', 'worker_id': worker_id})
+        except Exception:
+            new_msg = (time.time(), {'type': 'aborted_high_priority', 'worker_id': worker_id})
             self._com_queue_out.put((self.HIGH_PRIORITY_MSG, new_msg))
 
     # --------------------------------------------------
@@ -477,19 +499,19 @@ class FtpFileDownloader:
         if self._clean:
             self.clean_local_file(remote_path, local_path)
 
+        self._remote_filesize = self._ftp_get_filesize(remote_path)
+
         # construct a blockmap, but the blockmap is written to disk until init_blockmap if it does not exist yet
         blockmap = Blockmap(remote_path, local_path, self._ftp_get_filesize, self._min_blocks_per_segment,
                             self._max_blocks_per_segment, self._initial_blocksize)
-
-        # exit if this file has already been downloaded
-        if not blockmap.is_blockmap_already_exists() and os.path.exists(local_path):
-            if os.path.getsize(local_path) > 0:
-                return
 
         # create the local file if it does not exist
         if not os.path.exists(local_path):
             f = open(local_path, 'wb')
             f.close()
+
+        with open(local_path, 'r+b') as f:
+            f.truncate(self._remote_filesize)
 
         # initialize the blockmap
         blockmap.init_blockmap()

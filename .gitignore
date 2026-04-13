@@ -13,3 +13,5 @@ tests/test_data
 
 dist
 superftp.egg-info
+.codex
+
